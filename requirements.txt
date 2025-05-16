@@ -1,0 +1,11 @@
+gym[atari,accept-rom-license]
+torch
+torchvision
+opencv-python
+numpy
+tqdm
+stable-baselines3[extra]
+yaml
+pyyaml
+moviepy # for video generation
+imageio[ffmpeg] # for video generation

@@ -1,0 +1,32 @@
+environment:
+  game_name: "ALE/Breakout-v5"
+  noop_max: 30
+  seed: 42
+
+encoder:
+  num_brick_layers: 6
+  num_bricks_per_layer: 18
+  bricks_start: 26 # y coord where the bricks begin to appear
+  bricks_end: 62 # y coord where the bricks stop to appear
+  frame_x_size: 160
+
+model:
+  feature_space_size: 113
+
+optimizer:
+  type: AdamW
+  params:
+    lr: 0.00025
+    weight_decay: 0.000001
+
+training:
+  max_updates: 100000 # 50M steps
+  steps_per_update: 512
+  gamma: 0.99
+  entropy_weight: 0.05
+  actor_weight: 1.0
+  critic_weight: 0.5
+  update_frequency: 100
+  epsilon_start: 0.5
+  epsilon_end: 0.01
+  epsilon_decay: 0.995
