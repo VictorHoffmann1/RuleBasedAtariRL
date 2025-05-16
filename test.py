@@ -18,7 +18,8 @@ def test():
         game_name=config["environment"]["game_name"],
         render_mode="rgb_array",
         record_video=True,
-        video_dir="./data"
+        video_dir="./data",
+        num_envs=1
         )
 
     encoder = RuleBasedEncoder(
@@ -27,6 +28,7 @@ def test():
         bricks_y_zone=(config["encoder"]["bricks_start"],
                         config["encoder"]["bricks_end"]),
         frame_x_size=config["encoder"]["frame_x_size"],
+        num_envs=1
     )
 
     model = ActorCriticMLP(n_input=config["model"]["feature_space_size"],
@@ -36,24 +38,24 @@ def test():
     model.eval()
 
     obs, _ = env.reset()
-    # Just do one step for the ball to appear
-    obs, _, _, _, _ = env.step(1)
     done = False
 
     print("Starting test...")
+    total_reward = 0
     step_count = 0
     while not done:
         with torch.no_grad():
-            feature_space = torch.tensor(encoder(obs), dtype=torch.float32).unsqueeze(0).to(device)
+            feature_space = torch.tensor(encoder([obs]), dtype=torch.float32).to(device)
             logits, _ = model(feature_space)
-            probs = torch.softmax(logits, dim=1)
-            action = torch.argmax(probs, dim=1).item()
+            actions, _, _ = model.act(logits, epsilon=0.0)
+            action = actions.item()
 
         obs, reward, terminated, truncated, _ = env.step(action)
         step_count += 1
-        print(f"Step: {step_count}, Action: {action}, Reward: {reward}")
+        total_reward += reward
         done = terminated or truncated
-    print("Test finished.")
+        print(f"Step: {step_count}, Action: {action}, Reward: {reward}, Done: {done}")
+    print(f"Test finished! Total reward: {total_reward}. Steps: {step_count}")
     env.close()
 
 if __name__ == "__main__":

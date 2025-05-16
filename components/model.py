@@ -12,11 +12,11 @@ class ActorCriticMLP(nn.Module):
 
         self.num_actions = num_actions
         self.shared = nn.Sequential(
-            nn.Linear(n_input, 512),
+            nn.Linear(n_input, 256),
             nn.ReLU()
         )
-        self.actor = nn.Linear(512, self.num_actions)
-        self.critic = nn.Linear(512, 1)
+        self.actor = nn.Linear(256, self.num_actions)
+        self.critic = nn.Linear(256, 1)
 
     def forward(self, features):
         shared = self.shared(features)
@@ -25,15 +25,40 @@ class ActorCriticMLP(nn.Module):
         return logits, value
 
     def act(self, logits, epsilon=0.0):
-        probs = torch.softmax(logits, dim=1)
+        """
+        Args:
+            logits: Tensor of shape [num_envs, num_actions]
+            epsilon: Exploration rate
+        Returns:
+            actions: Tensor of shape [num_envs, 1]
+            dist: Categorical distribution
+            probs: Tensor of shape [num_envs, num_actions]
+        """
+        # Convert logits to probabilities
+        probs = torch.softmax(logits, dim=-1)  # shape: [num_envs, num_actions]
         dist = torch.distributions.Categorical(probs)
 
-        if random.random() < epsilon:
-            # Take a random action
-            action = torch.tensor([[random.randint(0, self.num_actions - 1)]], device=logits.device)
-            return action.squeeze(), dist, probs  # Return dist anyway for consistency/logging
+        # Generate random actions for exploration (entire batch)
+        if epsilon > 0:
+            random_mask = torch.rand(probs.shape[0], device=logits.device) < epsilon
+            random_actions = torch.randint(
+                0, self.num_actions, 
+                (probs.shape[0], 1),  # shape: [num_envs, 1]
+                device=logits.device
+            )
+            
+            # Sample actions from policy
+            policy_actions = dist.sample().unsqueeze(-1)  # shape: [num_envs, 1]
+            
+            # Combine random and policy actions
+            actions = torch.where(
+                random_mask.unsqueeze(-1),
+                random_actions,
+                policy_actions
+            )
         else:
-            action = dist.sample()
-            return action.squeeze(), dist, probs
+            actions = dist.sample().unsqueeze(-1)  # shape: [num_envs, 1]
+
+        return actions, dist, probs
 
 
