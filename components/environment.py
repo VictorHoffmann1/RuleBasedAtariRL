@@ -1,6 +1,5 @@
 import gym
-from gym.wrappers import FrameStack, GrayScaleObservation, ResizeObservation, RecordVideo
-import random
+from gym.wrappers import FrameStack, GrayScaleObservation, ResizeObservation, RecordVideo, TimeLimit
 import numpy as np
 
 def create_environment(
@@ -19,17 +18,7 @@ def create_environment(
 
     if record_video:
         env = RecordVideo(env, video_folder=video_dir, episode_trigger=lambda x: True)
+    else:
+        env = TimeLimit(env, max_episode_steps=1000)
 
     return env
-
-def make_env(game_name="ALE/SpaceInvaders-v5",
-            render_mode="rgb_array",
-            seed=42):
-    def _init():
-        env = create_environment(
-            game_name=game_name,
-            render_mode=render_mode
-        )
-        env.reset(seed=seed + np.random.randint(0, 1000))  # Seed each worker differently
-        return env
-    return _init
