@@ -16,17 +16,17 @@ model:
 optimizer:
   type: AdamW
   params:
-    lr: 0.00025
+    actor_lr: 0.0001 # Learning rate for the actor
+    critic_lr: 0.0001 # Learning rate for the critic
+    lr: 0.0001 # Learning rate for the shared network
     weight_decay: 0.000001
 
 training:
-  max_updates: 100000 # 50M steps
-  steps_per_update: 64
+  max_updates: 5000 # about 50M steps
+  steps_per_update: 1024
   gamma: 0.99
-  entropy_weight: 0.01
+  lambda: 0.95 # GAE lambda
+  entropy_weight: 0.05
   actor_weight: 1.0
   critic_weight: 0.5
-  update_frequency: 100
-  epsilon_start: 0.6
-  epsilon_end: 0.01
-  epsilon_decay: 0.9999
+  update_frequency: 10

@@ -18,7 +18,4 @@ def create_environment(
 
     if record_video:
         env = RecordVideo(env, video_folder=video_dir, episode_trigger=lambda x: True)
-    else:
-        env = TimeLimit(env, max_episode_steps=1000)
-
     return env
