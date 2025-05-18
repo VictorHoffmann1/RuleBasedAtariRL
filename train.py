@@ -33,12 +33,17 @@ def train():
     model = ActorCriticMLP(n_input=config["model"]["feature_space_size"],
                         num_actions=env.action_space[0].n).to(device)
     
-    optimizer = torch.optim.AdamW([
-        {"params": model.shared.parameters()},  # shared layers
-        {"params": model.actor.parameters(), "lr": config["optimizer"]["params"]["actor_lr"]},   # actor head
-        {"params": model.critic.parameters(), "lr": config["optimizer"]["params"]["critic_lr"]}  # critic head with higher lr
-    ], lr=config["optimizer"]["params"]["lr"],
-    weight_decay=config["optimizer"]["params"]["weight_decay"])
+    optimizer_name = config["optimizer"]["type"]
+    if optimizer_name == "AdamW":
+        optimizer = torch.optim.AdamW(model.parameters(),
+                                    lr=config["optimizer"]["params"]["lr"],
+                                    weight_decay=config["optimizer"]["params"]["weight_decay"])
+
+    elif optimizer_name == "RMSProp":
+        optimizer = torch.optim.RMSprop(model.parameters(),
+                                    lr=config["optimizer"]["params"]["lr"],
+                                    alpha=config["optimizer"]["params"]["alpha"],
+                                    eps=config["optimizer"]["params"]["eps"])
 
     max_updates = config["training"]["max_updates"]
     steps_per_update = config["training"]["steps_per_update"]

@@ -77,12 +77,12 @@ def test():
         bricks = bricks_flat.reshape(encoder.num_brick_layers, encoder.num_bricks_per_layer)
 
         # Convert normalized positions to pixel coordinates
-        px = int((player_x + 1) / 2 * w) + x_offset
-        bx = int((ball_x + 1) / 2 * w) + x_offset
-        by = int((ball_y + 1) / 2 * h) + y_offset
+        px = int((player_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
+        bx = int((ball_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
+        by = int((ball_y + 1) / 2 * (h - y_offset)) + y_offset
 
         # Draw player position (blue circle)
-        cv2.circle(vis_frame, (px, h - 10), 1, (255, 0, 0), -1)
+        cv2.circle(vis_frame, (px, 189), 1, (255, 0, 0), -1)
         # Draw ball position (red circle)
         cv2.circle(vis_frame, (bx, by), 1, (0, 0, 255), -1)
 

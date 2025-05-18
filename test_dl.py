@@ -20,6 +20,7 @@ def test():
         video_dir="./data",
         num_envs=1
         )
+
     model = ActorCriticCNN(num_actions=env.action_space.n).to(device)
 
     model.load_state_dict(torch.load("./data/rulebased_a2c_breakout_best.pth", map_location=device, weights_only=True))
