@@ -62,7 +62,7 @@ def test():
             features = encoder([obs])
             feature_space = torch.tensor(features, dtype=torch.float32).to(device)
             logits, _ = model(feature_space)
-            actions, _, _ = model.act(logits)
+            actions, _, _ = model.act(logits, greedy=False)
             action = actions.item()
 
         # --- Visualization ---

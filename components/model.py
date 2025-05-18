@@ -35,7 +35,7 @@ class ActorCriticMLP(nn.Module):
         value = self.critic(shared)
         return logits, value
 
-    def act(self, logits):
+    def act(self, logits, greedy=False):
         """
         Args:
             logits: Tensor of shape [num_envs, num_actions]
@@ -48,7 +48,10 @@ class ActorCriticMLP(nn.Module):
         # Convert logits to probabilities
         probs = torch.softmax(logits, dim=-1)  # shape: [num_envs, num_actions]
         dist = torch.distributions.Categorical(probs)
-        actions = dist.sample().unsqueeze(-1)  # shape: [num_envs, 1]
+        if greedy:
+            actions = torch.argmax(probs, dim=1)
+        else:
+            actions = dist.sample().unsqueeze(-1) # shape: [num_envs, 1]
 
         return actions, dist, probs
 
