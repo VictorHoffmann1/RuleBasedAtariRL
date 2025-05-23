@@ -1,36 +1,60 @@
-import torch
+import warnings
+from inspect import signature
+from typing import Union
 
-def compute_returns(rewards, dones, last_values, gamma):
-    # rewards: (steps, num_envs)
-    # dones: (steps, num_envs)
-    # last_values: (num_envs,)
-    steps, num_envs = rewards.shape
-    returns = torch.zeros_like(rewards)
-    R = last_values  # (num_envs)
-    for t in reversed(range(steps)):
-        R = rewards[t] + gamma * R * (1 - dones[t])
-        returns[t] = R
-    return returns  # (steps, num_envs)
+import gymnasium
 
-def compute_gae(rewards, dones, values, last_values, gamma, lam):
+try:
+    import gym
+
+    gym_installed = True
+except ImportError:
+    gym_installed = False
+
+
+def _patch_env(env: Union["gym.Env", gymnasium.Env]) -> gymnasium.Env:  # pragma: no cover
     """
-    rewards: (steps, num_envs)
-    dones: (steps, num_envs)
-    values: (steps, num_envs)
-    last_values: (num_envs,)
-    gamma: discount factor
-    lam: GAE lambda (typically 0.95)
+    Adapted from https://github.com/thu-ml/tianshou.
+
+    Takes an environment and patches it to return Gymnasium env.
+    This function takes the environment object and returns a patched
+    env, using shimmy wrapper to convert it to Gymnasium,
+    if necessary.
+
+    :param env: A gym/gymnasium env
+    :return: Patched env (gymnasium env)
     """
-    steps, num_envs = rewards.shape
-    advantages = torch.zeros_like(rewards)
-    gae = torch.zeros(num_envs, device=rewards.device)
-    
-    values = torch.cat([values, last_values.unsqueeze(0)], dim=0)  # (steps + 1, num_envs)
 
-    for t in reversed(range(steps)):
-        delta = rewards[t] + gamma * values[t + 1] * (1 - dones[t]) - values[t]
-        gae = delta + gamma * lam * (1 - dones[t]) * gae
-        advantages[t] = gae
+    # Gymnasium env, no patching to be done
+    if isinstance(env, gymnasium.Env):
+        return env
 
-    returns = advantages + values[:-1]  # (steps, num_envs)
-    return returns, advantages
+    if not gym_installed or not isinstance(env, gym.Env):
+        raise ValueError(
+            f"The environment is of type {type(env)}, not a Gymnasium "
+            f"environment. In this case, we expect OpenAI Gym to be "
+            f"installed and the environment to be an OpenAI Gym environment."
+        )
+
+    try:
+        import shimmy
+    except ImportError as e:
+        raise ImportError(
+            "Missing shimmy installation. You provided an OpenAI Gym environment. "
+            "Stable-Baselines3 (SB3) has transitioned to using Gymnasium internally. "
+            "In order to use OpenAI Gym environments with SB3, you need to "
+            "install shimmy (`pip install 'shimmy>=2.0'`)."
+        ) from e
+
+    warnings.warn(
+        "You provided an OpenAI Gym environment. "
+        "We strongly recommend transitioning to Gymnasium environments. "
+        "Stable-Baselines3 is automatically wrapping your environments in a compatibility "
+        "layer, which could potentially cause issues."
+    )
+
+    if "seed" in signature(env.unwrapped.reset).parameters:
+        # Gym 0.26+ env
+        return shimmy.GymV26CompatibilityV0(env=env)
+    # Gym 0.21 env
+    return shimmy.GymV21CompatibilityV0(env=env)

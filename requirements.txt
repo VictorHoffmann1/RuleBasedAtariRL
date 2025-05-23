@@ -1,11 +1,10 @@
-gym[atari,accept-rom-license]
+gymnasium
+gym[atari,accept-rom-license] == 0.25.2
 torch
 torchvision
 opencv-python
-numpy
-tqdm
+numpy==1.25.0
 stable-baselines3[extra]
-yaml
 pyyaml
 moviepy # for video generation
 imageio[ffmpeg] # for video generation

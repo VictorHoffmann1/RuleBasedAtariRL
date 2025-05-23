@@ -1,22 +1,24 @@
 import numpy as np
 import cv2
 from typing import List, Optional
+import numpy as np
 
 class RuleBasedEncoder:
     """Rule-based encoder for Atari games with batched environment support."""
     def __init__(self,
                  num_brick_layers: int = 6,
                  num_bricks_per_layer: int = 18,
-                 bricks_y_zone: tuple = (26, 62),
+                 bricks_y_start: int = 26,
+                 bricks_y_end: int = 62,
                  frame_x_size: int = 160,
                  speed_scale: float = 10.0,
                  num_envs: int = 1):
-        bricks_shape = (bricks_y_zone[1] - bricks_y_zone[0], frame_x_size)
+        self.bricks_y_start, self.bricks_y_end = int(bricks_y_start), int(bricks_y_end)
+        bricks_shape = (self.bricks_y_end - self.bricks_y_start, frame_x_size)
         self.num_brick_layers = num_brick_layers
         self.num_bricks_per_layer = num_bricks_per_layer
         self.brick_x_length = bricks_shape[1] // num_bricks_per_layer
         self.brick_y_length = bricks_shape[0] // num_brick_layers
-        self.bricks_y_zone = bricks_y_zone
         self.num_envs = num_envs
         self.ball_x, self.ball_y = np.zeros(num_envs), np.zeros(num_envs)
         self.ball_dx, self.ball_dy = np.zeros(num_envs), np.zeros(num_envs)
@@ -66,35 +68,35 @@ class RuleBasedEncoder:
                     player_x = x_norm
                 
                 # Detect the ball
-                elif 1 < area < 15:
+                elif 2 < area < 15:
                     ball_found = True
                     if self.ball_x[i] != -2.0 or self.ball_y[i] != -2.0:
-                        self.ball_dx[i] = (x_norm - self.ball_x[i]) * self.speed_scale
-                        self.ball_dy[i] = (y_norm - self.ball_y[i]) * self.speed_scale
+                        self.ball_dx[i] = (x_norm - self.ball_x[i])
+                        self.ball_dy[i] = (y_norm - self.ball_y[i])
                     self.ball_x[i] = x_norm
                     self.ball_y[i] = y_norm
 
             # Handle Missing Ball
             if not ball_found:
                 # Make sure the ball is not out of bounds
-                if self.ball_y[i] > 1.0:
+                if self.ball_y[i] >= 1.0:
                     self.reset([i])
                 self.ball_x[i] += self.ball_dx[i]
-                self.ball_y[i] += self.ball_dy[i]
+                self.ball_y[i] += self.ball_dy[i]   
 
-            # Brick detection (batched)
-            bricks_zone = frame[self.bricks_y_zone[0]:self.bricks_y_zone[1], :, :]
-            brick_mask = (bricks_zone[:, :, 0] > 0) & (bricks_zone[:, :, 1] > 0) & (bricks_zone[:, :, 2] > 0)
+            # Brick detection
+            #bricks_zone = frame[self.bricks_y_start:self.bricks_y_end, :, :]
+            #brick_mask = (bricks_zone[:, :, 0] > 0) & (bricks_zone[:, :, 1] > 0) & (bricks_zone[:, :, 2] > 0)
             # Reshape the brick_mask into a grid of layers and bricks
-            reshaped_mask = brick_mask.reshape(self.num_brick_layers, self.brick_y_length, self.num_bricks_per_layer, self.brick_x_length)
+            #reshaped_mask = brick_mask.reshape(self.num_brick_layers, self.brick_y_length, self.num_bricks_per_layer, self.brick_x_length)
             # Use NumPy's any() along the appropriate axes to determine if any pixel in each brick is True
-            bricks = reshaped_mask.all(axis=(1, 3))
+            #bricks = reshaped_mask.all(axis=(1, 3))
 
             # Build feature vector
             features = np.concatenate([
                 np.array([player_x, self.ball_x[i], self.ball_y[i], 
-                        self.ball_dx[i], self.ball_dy[i]]),
-                bricks.flatten()
+                        self.ball_dx[i] * self.speed_scale, self.ball_dy[i] * self.speed_scale]),
+                #bricks.flatten()
             ])
             batch_features.append(features)
 

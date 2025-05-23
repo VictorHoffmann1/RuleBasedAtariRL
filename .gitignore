@@ -1,5 +1,7 @@
 # My own personal ignored folders
-data/
+videos/
+weights/
+logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

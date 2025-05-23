@@ -1,32 +1,28 @@
 environment:
-  number: 16 # Number of parallel environments
-  game_name: "ALE/Breakout-v5"
-  seed: 42
+  number: &num_envs 4 # Number of parallel environments
+  game_name: "BreakoutNoFrameskip-v4" # Environment name
+  seed: 0
 
 encoder:
   num_brick_layers: 6
   num_bricks_per_layer: 18
-  bricks_start: 26 # y coord where the bricks begin to appear
-  bricks_end: 62 # y coord where the bricks stop to appear
+  bricks_y_start: 26.0 # y coord where the bricks begin to appear
+  bricks_y_end: 62.0 # y coord where the bricks stop to appear
   frame_x_size: 160
+  speed_scale: 10.0
+  num_envs: *num_envs
 
 model:
-  feature_space_size: 113
-
-optimizer:
-  type: RMSProp # AdamW or RMSProp
-  params:
-    lr: 0.0007
-    weight_decay: 0.00001 # AdamW only
-    eps: 0.00001 # RMSProp only
-    alpha: 0.99 # RMSProp only
+  name: "PPO" # Model name (PPO, DQN or A2C)
+  n_features: 5
+  learning_rate: 0.0003
+  n_steps: 2048
+  gamma: 0.99
+  gae_lambda: 0.95
+  ent_coef: 0.0
+  vf_coef: 0.5
+  batch_size: 64 # PPO Only
+  n_epochs: 10 # PPO Only
 
 training:
-  max_updates: 156250 # about 50M steps
-  steps_per_update: 20
-  gamma: 0.99
-  lambda: 0.95 # GAE lambda
-  entropy_weight: 0.01
-  actor_weight: 1.0
-  critic_weight: 0.5
-  update_frequency: 100
+  num_episodes: 1000000 # Number of episodes to train
