@@ -1,5 +1,5 @@
 environment:
-  number: &num_envs 4 # Number of parallel environments
+  number: &num_envs 16 # Number of parallel environments
   game_name: "BreakoutNoFrameskip-v4" # Environment name
   seed: 0
 

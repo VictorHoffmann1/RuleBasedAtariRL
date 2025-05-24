@@ -15,6 +15,7 @@ except ImportError:
 AtariResetReturn = Tuple[np.ndarray, Dict[str, Any]]
 AtariStepReturn = Tuple[np.ndarray, SupportsFloat, bool, bool, Dict[str, Any]]
 
+
 class EncoderWrapper(VecEnvWrapper):
     """
     Wrapper to encode the observations using a rule-based encoder.
@@ -22,6 +23,7 @@ class EncoderWrapper(VecEnvWrapper):
     :param encoder: Encoder class/function to apply to each observation
     :param n_features: Number of features in the encoded observation
     """
+
     def __init__(self, venv, encoder, n_features):
         super().__init__(venv)
         self.encoder = encoder
@@ -37,6 +39,7 @@ class EncoderWrapper(VecEnvWrapper):
         obs, rewards, terminated, infos = self.venv.step_wait()
         encoded_obs = self.encoder(obs)
         return encoded_obs, rewards, terminated, infos
+
 
 class StickyActionEnv(gym.Wrapper):
     """
@@ -54,23 +57,14 @@ class StickyActionEnv(gym.Wrapper):
         self.action_repeat_probability = action_repeat_probability
         assert env.unwrapped.get_action_meanings()[0] == "NOOP"  # type: ignore[attr-defined]
 
-
-
     def reset(self, **kwargs) -> AtariResetReturn:
         self._sticky_action = 0  # NOOP
         return self.env.reset(**kwargs)
-
-
-
 
     def step(self, action: int) -> AtariStepReturn:
         if self.np_random.random() >= self.action_repeat_probability:
             self._sticky_action = action
         return self.env.step(self._sticky_action)
-
-
-
-
 
 
 class NoopResetEnv(gym.Wrapper):
@@ -88,8 +82,6 @@ class NoopResetEnv(gym.Wrapper):
         self.override_num_noops = None
         self.noop_action = 0
         assert env.unwrapped.get_action_meanings()[0] == "NOOP"  # type: ignore[attr-defined]
-
-
 
     def reset(self, **kwargs) -> AtariResetReturn:
         self.env.reset(**kwargs)
@@ -113,10 +105,6 @@ class NoopResetEnv(gym.Wrapper):
         return obs, info
 
 
-
-
-
-
 class FireResetEnv(gym.Wrapper):
     """
     Take action on reset for environments that are fixed until firing.
@@ -128,8 +116,6 @@ class FireResetEnv(gym.Wrapper):
         super().__init__(env)
         assert env.unwrapped.get_action_meanings()[1] == "FIRE"  # type: ignore[attr-defined]
         assert len(env.unwrapped.get_action_meanings()) >= 3  # type: ignore[attr-defined]
-
-
 
     def reset(self, **kwargs) -> AtariResetReturn:
         self.env.reset(**kwargs)
@@ -154,7 +140,7 @@ class FireResetEnv(gym.Wrapper):
         return obs, {}
 
 
-class EpisodicLifeEnv(gym.Wrapper): 
+class EpisodicLifeEnv(gym.Wrapper):
     """
     Make end-of-life == end-of-episode, but only reset on true game over.
     Done by DeepMind for the DQN and co. since it helps value estimation.
@@ -166,8 +152,6 @@ class EpisodicLifeEnv(gym.Wrapper):
         super().__init__(env)
         self.lives = 0
         self.was_real_done = True
-
-
 
     def step(self, action: int) -> AtariStepReturn:
         step_result = self.env.step(action)
@@ -183,9 +167,6 @@ class EpisodicLifeEnv(gym.Wrapper):
             terminated = True
         self.lives = lives
         return obs, reward, terminated, truncated, info
-
-
-
 
     def reset(self, **kwargs) -> AtariResetReturn:
         if self.was_real_done:
@@ -203,10 +184,6 @@ class EpisodicLifeEnv(gym.Wrapper):
         return obs, info
 
 
-
-
-
-
 class MaxAndSkipEnv(gym.Wrapper):
     """
     Return only every ``skip``-th frame (frameskipping)
@@ -221,9 +198,15 @@ class MaxAndSkipEnv(gym.Wrapper):
     def __init__(self, env: gym.Env, skip: int = 4, max_pool: bool = True) -> None:
         super().__init__(env)
         # most recent raw observations (for max pooling across time steps)
-        assert env.observation_space.dtype is not None, "No dtype specified for the observation space"
-        assert env.observation_space.shape is not None, "No shape defined for the observation space"
-        self._obs_buffer = np.zeros((2, *env.observation_space.shape), dtype=env.observation_space.dtype)
+        assert env.observation_space.dtype is not None, (
+            "No dtype specified for the observation space"
+        )
+        assert env.observation_space.shape is not None, (
+            "No shape defined for the observation space"
+        )
+        self._obs_buffer = np.zeros(
+            (2, *env.observation_space.shape), dtype=env.observation_space.dtype
+        )
         self._skip = skip
         self._max_pool = max_pool
 
@@ -271,7 +254,6 @@ class ClipRewardEnv(gym.RewardWrapper):
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
 
-
     def reward(self, reward: SupportsFloat) -> float:
         """
         Bin reward to {+1, 0, -1} by its sign.
@@ -280,6 +262,7 @@ class ClipRewardEnv(gym.RewardWrapper):
         :return:
         """
         return np.sign(float(reward))
+
 
 class WarpFrame(gym.ObservationWrapper):
     """
@@ -291,14 +274,18 @@ class WarpFrame(gym.ObservationWrapper):
     :param height: New frame height
     """
 
-    def __init__(self, env: gym.Env, width: int = 84, height: int = 84, greyscale: bool = True) -> None:
+    def __init__(
+        self, env: gym.Env, width: int = 84, height: int = 84, greyscale: bool = True
+    ) -> None:
         super().__init__(env)
         self.width = width
         self.height = height
         self.greyscale = greyscale
         rgb_channel = 1 if self.greyscale else 3
 
-        assert isinstance(env.observation_space, spaces.Box), f"Expected Box space, got {env.observation_space}"
+        assert isinstance(env.observation_space, spaces.Box), (
+            f"Expected Box space, got {env.observation_space}"
+        )
         self.observation_space = spaces.Box(
             low=0,
             high=255,
@@ -316,11 +303,15 @@ class WarpFrame(gym.ObservationWrapper):
         if type(frame) == tuple:
             # Handle the case where the environment returns obs, info
             frame = frame[0]
-        assert cv2 is not None, "OpenCV is not installed, you can do `pip install opencv-python`"
+        assert cv2 is not None, (
+            "OpenCV is not installed, you can do `pip install opencv-python`"
+        )
         if self.greyscale:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         if self.width != frame.shape[1] or self.height != frame.shape[0]:
-            frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
+            frame = cv2.resize(
+                frame, (self.width, self.height), interpolation=cv2.INTER_AREA
+            )
         return frame[:, :, None] if self.greyscale else frame
 
 
@@ -367,7 +358,6 @@ class AtariWrapper(gym.Wrapper):
         clip_reward: bool = True,
         action_repeat_probability: float = 0.0,
         greyscale: bool = True,
-
     ) -> None:
         if action_repeat_probability > 0.0:
             env = StickyActionEnv(env, action_repeat_probability)
@@ -382,7 +372,7 @@ class AtariWrapper(gym.Wrapper):
             env = FireResetEnv(env)
         if screen_size > 0:
             width, height = screen_size, screen_size
-        else: # use original_size
+        else:  # use original_size
             height, width = env.observation_space.shape[0:2]
         env = WarpFrame(env, width=width, height=height, greyscale=greyscale)
         if clip_reward:

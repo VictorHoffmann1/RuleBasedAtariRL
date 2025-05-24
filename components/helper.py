@@ -12,7 +12,9 @@ except ImportError:
     gym_installed = False
 
 
-def _patch_env(env: Union["gym.Env", gymnasium.Env]) -> gymnasium.Env:  # pragma: no cover
+def _patch_env(
+    env: Union["gym.Env", gymnasium.Env],
+) -> gymnasium.Env:  # pragma: no cover
     """
     Adapted from https://github.com/thu-ml/tianshou.
 

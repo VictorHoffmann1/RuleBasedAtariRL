@@ -5,6 +5,7 @@ torchvision
 opencv-python
 numpy==1.25.0
 stable-baselines3[extra]
+protobuf==3.20
 pyyaml
-moviepy # for video generation
-imageio[ffmpeg] # for video generation
+moviepy
+imageio[ffmpeg]
