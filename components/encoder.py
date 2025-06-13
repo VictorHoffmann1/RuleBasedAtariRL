@@ -61,7 +61,7 @@ class RuleBasedEncoder:
             )
 
             ball_found = False
-            player_x = 0.5  # Default center position if not found
+            player_x = 0.0  # Default center position if not found
 
             for j in range(1, num_labels):  # skip label 0 (background)
                 x, y, _, _, area = stats[j]

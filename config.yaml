@@ -1,7 +1,7 @@
 environment:
   number: &num_envs 16 # Number of parallel environments
   game_name: "BreakoutNoFrameskip-v4" # Environment name
-  seed: 0
+  seed: 42
 
 encoder:
   num_brick_layers: 6
@@ -13,16 +13,21 @@ encoder:
   num_envs: *num_envs
 
 model:
-  name: "PPO" # Model name (PPO, DQN or A2C)
+  name: "PPO" # Model name (PPO or A2C)
   n_features: 5
-  learning_rate: 0.0003
-  n_steps: 2048
+
+  # Global parameters
+  learning_rate: 0.0007
   gamma: 0.99
+  
+  # Actor-Critic parameters (A2C and PPO)
+  n_steps: 256
   gae_lambda: 0.95
-  ent_coef: 0.0
+  ent_coef: 0.01
   vf_coef: 0.5
-  batch_size: 64 # PPO Only
+  ppo_batch_size: 64 # PPO Only
   n_epochs: 10 # PPO Only
 
+
 training:
-  num_episodes: 1000000 # Number of episodes to train
+  num_episodes: 5000000 # Number of episodes to train

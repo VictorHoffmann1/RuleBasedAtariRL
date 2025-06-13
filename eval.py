@@ -34,7 +34,7 @@ def eval():
 
     # Load model
     model = PPO.load(
-        os.path.join(model_path, "ppo_breakout_rb"),
+        os.path.join(model_path, "PPO_breakout_rb"),
         env=env,
         seed=seed,
         custom_objects={

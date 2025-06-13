@@ -60,7 +60,7 @@ def train():
             env,
             verbose=2,
             learning_rate=model_params["learning_rate"],
-            batch_size=model_params["batch_size"],
+            batch_size=model_params["ppo_batch_size"],
             n_epochs=model_params["n_epochs"],
             n_steps=model_params["n_steps"],
             gamma=model_params["gamma"],

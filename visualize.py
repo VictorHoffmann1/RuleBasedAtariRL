@@ -3,11 +3,13 @@ from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.encoder import RuleBasedEncoder
+from components.rule_based_agent import RuleBasedAgent
 import yaml
 import cv2
+import argparse
 
 
-def test():
+def test(args):
     # Load configuration
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
@@ -40,29 +42,32 @@ def test():
     env = make_atari_env(game_name, n_envs=1, seed=seed, wrapper_kwargs=wrapper_kwargs)
     encoder_env = EncoderWrapper(env, encoder, n_features)
 
-    # Load model
-    if model_name == "A2C":
-        model = A2C.load(
-            os.path.join(model_path, "a2c_breakout_rb"),
-            env=encoder_env,
-            seed=seed,
-            custom_objects={
-                "observation_space": encoder_env.observation_space,
-                "action_space": encoder_env.action_space,
-            },
-        )
-    elif model_name == "PPO":
-        model = PPO.load(
-            os.path.join(model_path, "ppo_breakout_rb"),
-            env=encoder_env,
-            seed=seed,
-            custom_objects={
-                "observation_space": encoder_env.observation_space,
-                "action_space": encoder_env.action_space,
-            },
-        )
+    if args.rb_agent:
+        model = RuleBasedAgent()
     else:
-        raise ValueError(f"Model {model_name} not implemented.")
+        # Load model
+        if model_name == "A2C":
+            model = A2C.load(
+                os.path.join(model_path, "A2C_breakout_rb"),
+                env=encoder_env,
+                seed=seed,
+                custom_objects={
+                    "observation_space": encoder_env.observation_space,
+                    "action_space": encoder_env.action_space,
+                },
+            )
+        elif model_name == "PPO":
+            model = PPO.load(
+                os.path.join(model_path, "PPO_breakout_rb"),
+                env=encoder_env,
+                seed=seed,
+                custom_objects={
+                    "observation_space": encoder_env.observation_space,
+                    "action_space": encoder_env.action_space,
+                },
+            )
+        else:
+            raise ValueError(f"Model {model_name} not implemented.")
 
     obs = env.reset()
     done = [False]
@@ -139,4 +144,9 @@ def test():
 
 
 if __name__ == "__main__":
-    test()
+    parser = argparse.ArgumentParser(description="Test Rule-Based Encoder")
+    parser.add_argument(
+        "--rb-agent", type=bool, help="Use Rule-Based Agent", default=False
+    )
+    args = parser.parse_args()
+    test(args)
