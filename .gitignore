@@ -2,6 +2,7 @@
 videos/
 weights/
 logs/
+test.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

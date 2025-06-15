@@ -15,15 +15,16 @@ encoder:
 model:
   name: "PPO" # Model name (PPO or A2C)
   n_features: 5
+  encoding_method: "paddle+ball" # paddle+ball, paddle+ball+bricks or transformer
 
   # Global parameters
-  learning_rate: 0.0007
+  learning_rate: 0.0003
   gamma: 0.99
   
   # Actor-Critic parameters (A2C and PPO)
-  n_steps: 256
+  n_steps: 2048
   gae_lambda: 0.95
-  ent_coef: 0.01
+  ent_coef: 0.0
   vf_coef: 0.5
   ppo_batch_size: 64 # PPO Only
   n_epochs: 10 # PPO Only

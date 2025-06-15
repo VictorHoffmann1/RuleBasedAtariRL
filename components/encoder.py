@@ -41,8 +41,10 @@ class RuleBasedEncoder:
             self.ball_x[i] = self.ball_y[i] = -2.0
             self.ball_dx[i] = self.ball_dy[i] = 0.0
 
-    def __call__(self, states: np.ndarray) -> np.ndarray:
-        """Encodes a batch of frames into feature spaces.
+    def simple_method(
+        self, states: np.ndarray, method: str = "paddle+ball"
+    ) -> np.ndarray:
+        """Encodes a batch of frames into feature spaces by return paddle position and ball position + velocity.
         Args:
             states: Batch of input frames [num_envs, H, W, C]
         Returns:
@@ -89,29 +91,132 @@ class RuleBasedEncoder:
                 self.ball_x[i] += self.ball_dx[i]
                 self.ball_y[i] += self.ball_dy[i]
 
-            # Brick detection
-            # bricks_zone = frame[self.bricks_y_start:self.bricks_y_end, :, :]
-            # brick_mask = (bricks_zone[:, :, 0] > 0) & (bricks_zone[:, :, 1] > 0) & (bricks_zone[:, :, 2] > 0)
-            # Reshape the brick_mask into a grid of layers and bricks
-            # reshaped_mask = brick_mask.reshape(self.num_brick_layers, self.brick_y_length, self.num_bricks_per_layer, self.brick_x_length)
-            # Use NumPy's any() along the appropriate axes to determine if any pixel in each brick is True
-            # bricks = reshaped_mask.all(axis=(1, 3))
+            if method == "paddle+ball":
+                # Build feature vector
+                features = np.array(
+                    [
+                        player_x,
+                        self.ball_x[i],
+                        self.ball_y[i],
+                        self.ball_dx[i] * self.speed_scale,
+                        self.ball_dy[i] * self.speed_scale,
+                    ]
+                )
 
-            # Build feature vector
-            features = np.concatenate(
-                [
-                    np.array(
-                        [
-                            player_x,
-                            self.ball_x[i],
-                            self.ball_y[i],
-                            self.ball_dx[i] * self.speed_scale,
-                            self.ball_dy[i] * self.speed_scale,
-                        ]
-                    ),
-                    # bricks.flatten()
-                ]
-            )
+            # Brick detection
+            elif method == "bricks+paddle+ball":
+                # Extract the bricks zone from the frame
+                bricks_zone = frame[self.bricks_y_start : self.bricks_y_end, :, :]
+                # Create a mask for bricks (assuming bricks are colored differently)
+                brick_mask = (
+                    (bricks_zone[:, :, 0] > 0)
+                    & (bricks_zone[:, :, 1] > 0)
+                    & (bricks_zone[:, :, 2] > 0)
+                )
+                # Reshape the brick_mask into a grid of layers and bricks
+                reshaped_mask = brick_mask.reshape(
+                    self.num_brick_layers,
+                    self.brick_y_length,
+                    self.num_bricks_per_layer,
+                    self.brick_x_length,
+                )
+                # Use NumPy's any() along the appropriate axes to determine if any pixel in each brick is True
+                bricks = reshaped_mask.all(axis=(1, 3))
+
+                # Build feature vector
+                features = np.concatenate(
+                    [
+                        np.array(
+                            [
+                                player_x,
+                                self.ball_x[i],
+                                self.ball_y[i],
+                                self.ball_dx[i] * self.speed_scale,
+                                self.ball_dy[i] * self.speed_scale,
+                            ]
+                        ),
+                        bricks.flatten(),
+                    ]
+                )
+
+            else:
+                raise ValueError(f"Unknown method: {method}")
+
             batch_features.append(features)
 
         return np.stack(batch_features)  # [num_envs, feature_dim]
+
+    def transformer_method(self, states: np.ndarray) -> np.ndarray:
+        """Encodes a batch of frames into feature vectors that can be fed to transformers.
+        For each detected feature, a vector containing the position, speed and area of the object is returned.
+        Args:
+            states: Batch of input frames [num_envs, H, W, C]
+        Returns:
+            np.ndarray: Batch of encoded features [num_envs, feature_dim, vector_dim]
+        """
+        batch_features = []
+
+        for i, state in enumerate(states):
+            # Crop the frame
+            frame = state[32:, 8:-8] if state.ndim == 3 else state[0, 31:, 8:-8]
+
+            # Use adaptive thresholding to get an edge / binary mask
+            edges = cv2.adaptiveThreshold(
+                frame,
+                maxValue=255,
+                adaptiveMethod=cv2.ADAPTIVE_THRESH_MEAN_C,
+                thresholdType=cv2.THRESH_BINARY,
+                blockSize=3,
+                C=0,
+            )
+
+            # Find contours in the binary mask
+            contours, _ = cv2.findContours(
+                edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            # Extract features for each contour (area, aspect ratio, length, centroid, isConvex)
+            feature_vectors = np.zeros((len(contours), 6), dtype=np.float32)
+            for i, contour in enumerate(contours):
+                feature_vectors[i, 0] = np.log1p(
+                    cv2.contourArea(contour)
+                )  # Area (log scale)
+
+                _, _, w, h = cv2.boundingRect(contour)
+                feature_vectors[i, 1] = w / h if h > 0 else 0.0  # Aspect ratio
+
+                feature_vectors[i, 2:4] = np.array(
+                    cv2.moments(contour)["m10"]
+                    / (cv2.moments(contour)["m00"] * frame.shape[1]),
+                    cv2.moments(contour)["m01"]
+                    / (cv2.moments(contour)["m00"] * frame.shape[0]),
+                )  # Centroids normalized
+
+                feature_vectors[i, 4] = np.log1p(
+                    cv2.arcLength(contour, closed=True)
+                )  # Length (log scale)
+
+                feature_vectors[i, 5] = (
+                    cv2.isContourConvex(contour) * 1.0
+                )  # Is convex (binary)
+
+            batch_features.append(feature_vectors)
+
+        return np.stack(batch_features)  # [num_envs, feature_dim, vector_dim]
+
+    def __call__(self, states: np.ndarray, method: str = "simple") -> np.ndarray:
+        """Encodes a batch of frames into feature spaces.
+        Args:
+            states: Batch of input frames [num_envs, H, W, C]
+        Returns:
+            np.ndarray: Batch of encoded features [num_envs, feature_dim]
+        """
+
+        if method == "paddle+ball":
+            return self.simple_method(states, method="paddle+ball")
+        elif method == "bricks+paddle+ball":
+            return self.simple_method(states, method="bricks+paddle+ball")
+        elif method == "transformer":
+            return self.transformer_method(states, method="transformer")
+        else:
+            raise ValueError(f"Unknown encoding method: {method}")
