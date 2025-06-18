@@ -11,17 +11,16 @@ encoder:
   frame_x_size: 160
   speed_scale: 10.0
   num_envs: *num_envs
+  max_objects: 64 # Maximum number of objects to encode for transformer / deepsets method
 
 model:
   name: "PPO" # Model name (PPO or A2C)
-  n_features: 5
-  encoding_method: "paddle+ball" # paddle+ball, paddle+ball+bricks or transformer
 
   # Global parameters
   learning_rate: 0.0003
   gamma: 0.99
-  
-  # Actor-Critic parameters (A2C and PPO)
+    
+    # Actor-Critic parameters (A2C and PPO)
   n_steps: 2048
   gae_lambda: 0.95
   ent_coef: 0.0

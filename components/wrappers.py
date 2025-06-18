@@ -24,11 +24,17 @@ class EncoderWrapper(VecEnvWrapper):
     :param n_features: Number of features in the encoded observation
     """
 
+    # TODO: Add support for custom transfomer encoder
     def __init__(self, venv, encoder, n_features):
         super().__init__(venv)
         self.encoder = encoder
+        shape = (
+            (self.encoder.max_objects, n_features)
+            if self.encoder.method == "transformer"
+            else (n_features,)
+        )
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(n_features,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=shape, dtype=np.float32
         )
 
     def reset(self):
