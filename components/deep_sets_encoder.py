@@ -22,7 +22,11 @@ class DeepSets(nn.Module):
             nn.Linear(hidden_dim, output_dim),
         )
 
-        assert pooling in ["mean", "sum", "max"], (
+        if pooling == "learned":
+            # Learned pooling layer
+            self.pooling_layer = nn.Linear(input_dim, 1)
+
+        assert pooling in ["mean", "sum", "max", "learned"], (
             "Pooling must be one of: mean, sum, max"
         )
         self.pooling = pooling
@@ -50,6 +54,14 @@ class DeepSets(nn.Module):
             max_mask = ~mask.unsqueeze(-1).expand_as(phi_x) * (-1e9)  # Set invalid positions to -inf
             phi_x = phi_x + max_mask  # Set invalid positions to -inf
             pooled, _ = phi_x.max(dim=1)
+        elif self.pooling == "learned":
+            # Learned pooling
+            weights = F.softmax(self.pooling_layer(x) * mask.float().unsqueeze(-1), dim=1)  # [batch_size, num_objects, 1]
+            pooled = (weights * phi_x).sum(dim=1)  # [batch_size, hidden_dim]
+        else:
+            raise ValueError(
+                f"Pooling method {self.pooling} is not supported. Choose from: mean, sum, max, learned."
+            )
 
         # Global MLP
         out = self.rho(pooled)  # shape: (batch_size, output_dim)
