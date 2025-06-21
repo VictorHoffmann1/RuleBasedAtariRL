@@ -26,7 +26,7 @@ class DeepSets(nn.Module):
             # Learned pooling layer
             self.pooling_layer = nn.Linear(input_dim, 1)
 
-        assert pooling in ["mean", "sum", "max", "learned"], (
+        assert pooling in ["mean", "sum", "max", "max+mean", "learned"], (
             "Pooling must be one of: mean, sum, max"
         )
         self.pooling = pooling
@@ -51,17 +51,29 @@ class DeepSets(nn.Module):
             pooled = phi_x.sum(dim=1)
         elif self.pooling == "max":
             # Apply mask to phi_x to ignore padded objects
-            max_mask = ~mask.unsqueeze(-1).expand_as(phi_x) * (-1e9)  # Set invalid positions to -inf
+            max_mask = ~mask.unsqueeze(-1).expand_as(phi_x) * (
+                -1e20
+            )  # Set invalid positions to -inf
             phi_x = phi_x + max_mask  # Set invalid positions to -inf
             pooled, _ = phi_x.max(dim=1)
         elif self.pooling == "learned":
             # Learned pooling
-            weights = F.softmax(self.pooling_layer(x) * mask.float().unsqueeze(-1), dim=1)  # [batch_size, num_objects, 1]
+            weights = F.softmax(
+                self.pooling_layer(x) * mask.float().unsqueeze(-1), dim=1
+            )  # [batch_size, num_objects, 1]
             pooled = (weights * phi_x).sum(dim=1)  # [batch_size, hidden_dim]
-        else:
-            raise ValueError(
-                f"Pooling method {self.pooling} is not supported. Choose from: mean, sum, max, learned."
-            )
+        elif self.pooling == "max+mean":
+            # Max Pooling
+            max_mask = ~mask.unsqueeze(-1).expand_as(phi_x) * (-1e20)
+            phi_x_max_pool = phi_x + max_mask
+            pooled_max, _ = phi_x_max_pool.max(dim=1)
+
+            # Mean Pooling
+            phi_x_mean_pool = phi_x * mask.unsqueeze(-1)
+            pooled_mean = phi_x_mean_pool.sum(dim=1) / valid_counts.clamp(min=1)
+
+            # Concatenate max and mean pooled features
+            pooled = torch.cat((pooled_max, pooled_mean), dim=-1)
 
         # Global MLP
         out = self.rho(pooled)  # shape: (batch_size, output_dim)
@@ -70,7 +82,8 @@ class DeepSets(nn.Module):
 
 class DeepSetsFeaturesExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space, n_features, hidden_dim, output_dim, pooling):
-        super().__init__(observation_space, features_dim=output_dim)
+        features_dim = 2 * output_dim if pooling == "max+mean" else output_dim
+        super().__init__(observation_space, features_dim=features_dim)
         self.deepsets_encoder = DeepSets(n_features, hidden_dim, output_dim, pooling)
 
     def forward(self, observations):
@@ -85,7 +98,7 @@ class CustomDeepSetPolicy(ActorCriticPolicy):
             lr_schedule,
             features_extractor_class=DeepSetsFeaturesExtractor,
             features_extractor_kwargs=dict(
-                n_features=8, hidden_dim=64, output_dim=32, pooling="max"
+                n_features=8, hidden_dim=64, output_dim=32, pooling="max+mean"
             ),
             **kwargs,
         )
