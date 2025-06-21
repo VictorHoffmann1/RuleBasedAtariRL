@@ -17,9 +17,17 @@ class DeepSets(nn.Module):
 
         # ρ: Global MLP after pooling
         self.rho = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(
+                2 * hidden_dim
+                if pooling == "max+mean"
+                else hidden_dim,  # Concatenate max and mean pooled features
+                hidden_dim,
+            ),
             nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim),
+            nn.Linear(
+                hidden_dim,  # Output dimension of the global MLP
+                output_dim,
+            ),
         )
 
         if pooling == "learned":
@@ -82,8 +90,7 @@ class DeepSets(nn.Module):
 
 class DeepSetsFeaturesExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space, n_features, hidden_dim, output_dim, pooling):
-        features_dim = 2 * output_dim if pooling == "max+mean" else output_dim
-        super().__init__(observation_space, features_dim=features_dim)
+        super().__init__(observation_space, features_dim=output_dim)
         self.deepsets_encoder = DeepSets(n_features, hidden_dim, output_dim, pooling)
 
     def forward(self, observations):
