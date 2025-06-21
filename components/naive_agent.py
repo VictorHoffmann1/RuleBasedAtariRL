@@ -6,7 +6,7 @@ class NaiveAgent:
         self.player_offset = 0.1
         self.no_op_threshold = 0.07
 
-    def predict(self, features):
+    def predict(self, features, deterministic: bool = True):
         """
         Perform an action based on the observation.
         Vectorized implementation using numpy.

@@ -133,7 +133,7 @@ def test(args):
     step_count = 0
     while not done[0]:
         features = obs if args.agent == "cnn" else encoder(obs)
-        actions, _ = model.predict(features)
+        actions, _ = model.predict(features, deterministic=True)
         action = actions[0]
 
         # --- Visualization ---
