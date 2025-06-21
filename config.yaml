@@ -19,7 +19,7 @@ model:
   # Global parameters
   learning_rate: 0.0001 # Ignored if linear_scheduler is true
   gamma: 0.99
-  linear_scheduler: true # Use linear learning rate scheduler
+  scheduler: true # Use linear learning rate scheduler
   lr_start: 0.001 # Initial learning rate
   lr_end: 0.00001 # Final learning rate
     

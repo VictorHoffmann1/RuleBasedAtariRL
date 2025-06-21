@@ -7,6 +7,7 @@ from components.deep_sets_encoder import CustomDeepSetPolicy
 from stable_baselines3.common.vec_env import VecFrameStack
 import yaml
 import os
+import numpy as np
 import argparse
 
 
@@ -111,8 +112,8 @@ def train(args):
             agent_mappings[args.agent]["policy"],
             env,
             verbose=2,
-            learning_rate= linear_schedule(model_params["lr_start"], model_params["lr_end"]) \
-                if model_params["linear_scheduler"] else model_params["learning_rate"],
+            learning_rate= exponential_schedule(model_params["lr_start"], model_params["lr_end"]) \
+                if model_params["scheduler"] else model_params["learning_rate"],
             batch_size=model_params["ppo_batch_size"],
             n_epochs=model_params["n_epochs"],
             n_steps=model_params["n_steps"],
@@ -132,10 +133,17 @@ def train(args):
     model.save(os.path.join(weights_dir, agent_mappings[args.agent]["name"]))
     env.close()
 
-# Linear LR schedule from 1e-3 to 1e-5
-def linear_schedule(initial_value: float, final_value: float):
+# Exponential LR schedule from 1e-3 to 1e-5
+def exponential_schedule(initial_value: float, final_value: float):
+    log_initial = np.log(initial_value)
+    log_final = np.log(final_value)
+
     def func(progress_remaining: float) -> float:
-        return final_value + (initial_value - final_value) * progress_remaining
+        # Convert progress_remaining (1 → 0) into fraction of progress (0 → 1)
+        frac = 1.0 - progress_remaining
+        log_lr = log_initial + frac * (log_final - log_initial)
+        return float(np.exp(log_lr))
+    
     return func
 
 
