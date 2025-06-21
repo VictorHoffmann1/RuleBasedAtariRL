@@ -33,17 +33,22 @@ class DeepSets(nn.Module):
         valid_counts = mask.sum(dim=1, keepdim=True)  # [batch_size, 1]
 
         phi_x = self.phi(x)  # shape: (batch_size, num_objects, hidden_dim)
-        # Apply mask to phi_x to remove padded objects
-        phi_x = phi_x * mask.unsqueeze(-1)  # [batch_size, num_objects, hidden_dim]
 
         # Aggregate across objects
         if self.pooling == "mean":
+            # Apply mask to phi_x to ignore padded objects
+            phi_x = phi_x * mask.unsqueeze(-1)  # [batch_size, num_objects, hidden_dim]
             pooled = phi_x.sum(dim=1) / valid_counts.clamp(
                 min=1
             )  # Clamp to avoid division by zero
         elif self.pooling == "sum":
+            # Apply mask to phi_x to ignore padded objects
+            phi_x = phi_x * mask.unsqueeze(-1)  # [batch_size, num_objects, hidden_dim]
             pooled = phi_x.sum(dim=1)
         elif self.pooling == "max":
+            # Apply mask to phi_x to ignore padded objects
+            max_mask = ~mask.unsqueeze(-1).expand_as(phi_x) * (-1e9)  # Set invalid positions to -inf
+            phi_x = phi_x + max_mask  # Set invalid positions to -inf
             pooled, _ = phi_x.max(dim=1)
 
         # Global MLP
@@ -68,7 +73,7 @@ class CustomDeepSetPolicy(ActorCriticPolicy):
             lr_schedule,
             features_extractor_class=DeepSetsFeaturesExtractor,
             features_extractor_kwargs=dict(
-                n_features=8, hidden_dim=128, output_dim=64, pooling="mean"
+                n_features=8, hidden_dim=64, output_dim=32, pooling="max"
             ),
             **kwargs,
         )

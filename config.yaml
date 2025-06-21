@@ -17,8 +17,11 @@ model:
   name: "PPO" # Model name (PPO or A2C)
 
   # Global parameters
-  learning_rate: 0.0003
+  learning_rate: 0.0001 # Ignored if linear_scheduler is true
   gamma: 0.99
+  linear_scheduler: true # Use linear learning rate scheduler
+  lr_start: 0.001 # Initial learning rate
+  lr_end: 0.00001 # Final learning rate
     
     # Actor-Critic parameters (A2C and PPO)
   n_steps: 2048

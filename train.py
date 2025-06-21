@@ -111,7 +111,8 @@ def train(args):
             agent_mappings[args.agent]["policy"],
             env,
             verbose=2,
-            learning_rate=model_params["learning_rate"],
+            learning_rate= linear_schedule(model_params["lr_start"], model_params["lr_end"]) \
+                if model_params["linear_scheduler"] else model_params["learning_rate"],
             batch_size=model_params["ppo_batch_size"],
             n_epochs=model_params["n_epochs"],
             n_steps=model_params["n_steps"],
@@ -130,6 +131,12 @@ def train(args):
     # Save model
     model.save(os.path.join(weights_dir, agent_mappings[args.agent]["name"]))
     env.close()
+
+# Linear LR schedule from 1e-3 to 1e-5
+def linear_schedule(initial_value: float, final_value: float):
+    def func(progress_remaining: float) -> float:
+        return final_value + (initial_value - final_value) * progress_remaining
+    return func
 
 
 if __name__ == "__main__":
