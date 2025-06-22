@@ -3,7 +3,7 @@ from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.encoder import RuleBasedEncoder
-from components.rule_based_agent import RuleBasedAgent
+from components.naive_agent import NaiveAgent
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
 import yaml
 import cv2
@@ -36,6 +36,12 @@ def test(args):
             "encoding_method": "transformer",
             "n_features": -1,
             "name": model_name + "_rb_transformer",
+            "n_stack": 2,  # Stack frames for temporal encoding
+        },
+        "deep_sets": {
+            "encoding_method": "transformer",
+            "n_features": 8,
+            "name": model_name + "_rb_deep_sets",
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "cnn": {
@@ -71,7 +77,7 @@ def test(args):
         wrapper_kwargs = {}
     else:
         wrapper_kwargs = {
-            "greyscale": True if args.agent == "transformer" else False,
+            "greyscale": True if args.agent in ["transformer", "deep_sets"] else False,
             "screen_size": -1,
             "clip_reward": False,
             "terminal_on_life_loss": False,
@@ -85,12 +91,12 @@ def test(args):
         env = VecTransposeImage(env)  # Transpose for CNN input
         load_env = env
     else:
-        if args.agent == "transformer":
+        if args.agent in ["transformer", "deep_sets"]:
             env = VecFrameStack(env, n_stack=agent_mappings[args.agent]["n_stack"])
         load_env = EncoderWrapper(env, encoder, n_features)
 
     if args.agent == "rule_based":
-        model = RuleBasedAgent()
+        model = NaiveAgent()
     else:
         # Load model
         if model_name == "A2C":
@@ -207,6 +213,7 @@ if __name__ == "__main__":
             "transformer",
             "cnn",
             "rule_based",
+            "deep_sets",
         ],
         required=True,
         help="The agent type to test.",

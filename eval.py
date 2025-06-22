@@ -3,12 +3,16 @@ from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.encoder import RuleBasedEncoder
-from stable_baselines3.common.evaluation import evaluate_policy
+from components.naive_agent import NaiveAgent
 from stable_baselines3.common.vec_env import VecFrameStack
 
 import yaml
 import os
+import numpy as np
 import argparse
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 def eval(args):
@@ -17,7 +21,6 @@ def eval(args):
         config = yaml.safe_load(f)
 
     game_name = config["environment"]["game_name"]
-    seed = config["environment"]["seed"]
     model_name = config["model"]["name"]
     model_path = "./weights"
 
@@ -25,17 +28,23 @@ def eval(args):
         "player+ball": {
             "encoding_method": "paddle+ball",
             "n_features": 5,
-            "name": model_name + "_rb_player_ball",
+            "name": model_name + "_rb_player_ball_3e-4",
         },
         "player+ball+bricks": {
             "encoding_method": "bricks+paddle+ball",
             "n_features": 113,
-            "name": model_name + "_rb_player_ball_bricks",
+            "name": model_name + "_rb_player_ball_bricks_3e-4",
         },
         "transformer": {
             "encoding_method": "transformer",
             "n_features": -1,
             "name": model_name + "_rb_transformer",
+        },
+        "deep_sets": {
+            "encoding_method": "transformer",
+            "n_features": 8,
+            "name": model_name + "_rb_deep_sets_3e-4_max",
+            "n_stack": 2,  # Stack frames for temporal encoding
         },
         "cnn": {
             "encoding_method": "cnn",
@@ -61,40 +70,74 @@ def eval(args):
         }
     else:
         wrapper_kwargs = {
-            "greyscale": True if args.agent == "transformer" else False,
+            "greyscale": True if args.agent in ["transformer", "deep_sets"] else False,
             "screen_size": -1,
             "clip_reward": False,
             "terminal_on_life_loss": False,
             "max_pool": False,
         }
 
-    env = make_atari_env(game_name, n_envs=1, seed=seed, wrapper_kwargs=wrapper_kwargs)
-    if args.agent == "cnn":
-        # Stack frames to encode temporal information
-        env = VecFrameStack(env, n_stack=4)
-    else:
-        if args.agent == "transformer":
+    seeds = list(range(10))  # Use a range of seeds for evaluation
+    total_rewards = []
+    for seed in seeds:
+        env = make_atari_env(
+            game_name, n_envs=1, seed=seed, wrapper_kwargs=wrapper_kwargs
+        )
+        if args.agent == "cnn":
             # Stack frames to encode temporal information
-            env = VecFrameStack(env, n_stack=2)
-        env = EncoderWrapper(env, encoder, n_features)
+            env = VecFrameStack(env, n_stack=4)
+        else:
+            if args.agent in ["transformer", "deep_sets"]:
+                # Stack frames to encode temporal information
+                env = VecFrameStack(env, n_stack=2)
+            env = EncoderWrapper(env, encoder, n_features)
 
-    # Load model
-    model = PPO.load(
-        os.path.join(model_path, agent_mappings[args.agent]["name"]),
-        env=env,
-        seed=seed,
-        custom_objects={
-            "observation_space": env.observation_space,
-            "action_space": env.action_space,
-        },
-    )
+        if args.agent == "rule_based":
+            model = NaiveAgent()
+        else:
+            # Load model
+            if model_name == "A2C":
+                model = A2C.load(
+                    os.path.join(model_path, agent_mappings[args.agent]["name"]),
+                    env=env,
+                    seed=seed,
+                    custom_objects={
+                        "observation_space": env.observation_space,
+                        "action_space": env.action_space,
+                    },
+                )
+            elif model_name == "PPO":
+                model = PPO.load(
+                    os.path.join(model_path, agent_mappings[args.agent]["name"]),
+                    env=env,
+                    seed=seed,
+                    custom_objects={
+                        "observation_space": env.observation_space,
+                        "action_space": env.action_space,
+                    },
+                )
+            else:
+                raise ValueError(f"Model {model_name} not implemented.")
 
-    # Evaluate the model
-    mean_reward, std_reward = evaluate_policy(
-        model, env, n_eval_episodes=10, render=False
-    )
-    print(f"Mean reward: {mean_reward} +/- {std_reward}")
-    env.close()
+        obs = env.reset()
+        done = [False]
+
+        total_reward = 0
+        step_count = 0
+        while not done[0]:
+            actions, _ = model.predict(obs, deterministic=False)
+
+            # --- End visualization ---
+            obs, reward, done, _ = env.step(actions)
+            step_count += 1
+            total_reward += reward[0]
+        print(f"Seed {seed}: Reward: {total_reward}. Steps: {step_count}")
+        env.close()
+        total_rewards.append(total_reward)
+
+    print(f"Average Reward over {len(seeds)} seeds: {sum(total_rewards) / len(seeds)}")
+    print(f"Total Rewards: {total_rewards}")
+    print(f"Standard Deviation: {np.std(total_rewards)}")
 
 
 if __name__ == "__main__":
@@ -107,6 +150,7 @@ if __name__ == "__main__":
             "player+ball+bricks",
             "transformer",
             "cnn",
+            "deep_sets",
             "rule_based",
         ],
         required=True,

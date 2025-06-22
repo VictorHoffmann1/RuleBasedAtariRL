@@ -23,7 +23,7 @@ model:
   lr_start: 0.00025 # Initial learning rate
   lr_end: 0.000125 # Final learning rate
 
-    # Actor-Critic parameters (A2C and PPO)
+  # Actor-Critic parameters (A2C and PPO)
   n_steps: 512
   gae_lambda: 0.95
   ent_coef: 0.05
