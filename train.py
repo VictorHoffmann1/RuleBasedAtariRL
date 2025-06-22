@@ -4,6 +4,7 @@ from components.wrappers import EncoderWrapper
 from components.encoder import RuleBasedEncoder
 from components.transformer_encoder import CustomTransformerPolicy
 from components.deep_sets_encoder import CustomDeepSetPolicy
+from components.schedulers import exponential_scheduler, linear_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
 import yaml
 import os
@@ -71,6 +72,7 @@ def train(args):
             "screen_size": -1,
             "max_pool": False,
         }
+        
 
     env = make_atari_env(
         game_name, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs
@@ -104,7 +106,9 @@ def train(args):
             gae_lambda=model_params["gae_lambda"],
             ent_coef=model_params["ent_coef"],
             vf_coef=model_params["vf_coef"],
+            max_grad_norm=model_params["max_grad_norm"],
             tensorboard_log=log_dir,
+            seed=seed
         )
 
     elif model_name == "PPO":
@@ -112,7 +116,7 @@ def train(args):
             agent_mappings[args.agent]["policy"],
             env,
             verbose=2,
-            learning_rate= exponential_schedule(model_params["lr_start"], model_params["lr_end"]) \
+            learning_rate= linear_scheduler(model_params["lr_start"], model_params["lr_end"]) \
                 if model_params["scheduler"] else model_params["learning_rate"],
             batch_size=model_params["ppo_batch_size"],
             n_epochs=model_params["n_epochs"],
@@ -121,7 +125,10 @@ def train(args):
             gae_lambda=model_params["gae_lambda"],
             ent_coef=model_params["ent_coef"],
             vf_coef=model_params["vf_coef"],
+            clip_range=linear_scheduler(model_params["clip_range"], 0.05),
+            max_grad_norm=model_params["max_grad_norm"],
             tensorboard_log=log_dir,
+            seed=seed,
         )
 
     model.learn(
@@ -132,20 +139,6 @@ def train(args):
     # Save model
     model.save(os.path.join(weights_dir, agent_mappings[args.agent]["name"]))
     env.close()
-
-# Exponential LR schedule from 1e-3 to 1e-5
-def exponential_schedule(initial_value: float, final_value: float):
-    log_initial = np.log(initial_value)
-    log_final = np.log(final_value)
-
-    def func(progress_remaining: float) -> float:
-        # Convert progress_remaining (1 → 0) into fraction of progress (0 → 1)
-        frac = 1.0 - progress_remaining
-        log_lr = log_initial + frac * (log_final - log_initial)
-        return float(np.exp(log_lr))
-    
-    return func
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Rule-Based Encoder")
