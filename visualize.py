@@ -40,7 +40,7 @@ def test(args):
         },
         "deep_sets": {
             "encoding_method": "transformer",
-            "n_features": 8,
+            "n_features": 9,
             "name": model_name + "_rb_deep_sets",
             "n_stack": 2,  # Stack frames for temporal encoding
         },

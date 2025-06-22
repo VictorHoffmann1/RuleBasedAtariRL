@@ -192,10 +192,12 @@ class RuleBasedEncoder:
             aspect_ratios = []
             lengths = []
             is_convex = []
+            colors = []
             for contour in contours:
                 areas.append(cv2.contourArea(contour))
                 x, y, w, h = cv2.boundingRect(contour)
                 coords.append([x, y])  # Center of bounding box
+                colors.append(frame[y + h // 2, x + w // 2])  # Color at center of bbox
                 aspect_ratios.append(w / h if h > 0 else 0.0)
                 lengths.append(cv2.arcLength(contour, closed=True))
                 is_convex.append(float(cv2.isContourConvex(contour)))
@@ -205,6 +207,7 @@ class RuleBasedEncoder:
             aspect_ratios_np = np.array(aspect_ratios, dtype=np.float32)
             lengths_np = np.array(lengths, dtype=np.float32)
             is_convex_np = np.array(is_convex, dtype=np.float32)
+            colors_np = np.array(colors, dtype=np.float32)
 
             assert len(coords_np) == len(contours), (
                 f"Number of coords {len(coords_np)} does not match number of contours {len(contours)}"
@@ -228,8 +231,8 @@ class RuleBasedEncoder:
                 f"Number of speeds {len(speeds)} does not match number of contours {len(contours)}"
             )
 
-            # Extract features for each contour (centroid, speed, area, aspect ratio, length, isConvex)
-            feature_vectors = np.zeros((len(contours), 8), dtype=np.float32)
+            # Extract features for each contour (centroid, speed, area, aspect ratio, length, isConvex, color)
+            feature_vectors = np.zeros((len(contours), 9), dtype=np.float32)
             feature_vectors[:, 0:2] = (
                 2
                 * coords_np.reshape(-1, 2)
@@ -244,6 +247,9 @@ class RuleBasedEncoder:
             feature_vectors[:, 5] = np.log(aspect_ratios_np + 1e-8)  # Aspect ratio
             feature_vectors[:, 6] = np.log1p(lengths_np)  # Length (log-scaled)
             feature_vectors[:, 7] = 2 * is_convex_np - 1  # Is convex (-1 or 1)
+            feature_vectors[:, 8] = (
+                2 * colors_np / 255.0 - 1
+            )  # Color normalized to [-1, 1]
 
             # Pad / Truncate to max_objects
             if len(feature_vectors) < self.max_objects:
@@ -258,7 +264,7 @@ class RuleBasedEncoder:
             # Ensure the feature vector has the correct shape
             assert feature_vectors.shape == (
                 self.max_objects,
-                8,
+                9,
             ), f"Feature vector shape mismatch: {feature_vectors.shape}"
 
             batch_features.append(feature_vectors)

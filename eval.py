@@ -42,7 +42,7 @@ def eval(args):
         },
         "deep_sets": {
             "encoding_method": "transformer",
-            "n_features": 8,
+            "n_features": 9,
             "name": model_name + "_rb_deep_sets_3e-4_max",
             "n_stack": 2,  # Stack frames for temporal encoding
         },

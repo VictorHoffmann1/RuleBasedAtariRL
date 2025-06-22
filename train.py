@@ -39,14 +39,14 @@ def train(args):
         },
         "transformer": {
             "encoding_method": "transformer",
-            "n_features": 8,
+            "n_features": 9,
             "name": model_name + "_rb_transformer",
             "policy": CustomTransformerPolicy,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "deep_sets": {
             "encoding_method": "transformer",
-            "n_features": 8,
+            "n_features": 9,
             "name": model_name + "_rb_deep_sets",
             "policy": CustomDeepSetPolicy,
             "n_stack": 2,  # Stack frames for temporal encoding
@@ -72,7 +72,6 @@ def train(args):
             "screen_size": -1,
             "max_pool": False,
         }
-        
 
     env = make_atari_env(
         game_name, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs
@@ -108,7 +107,7 @@ def train(args):
             vf_coef=model_params["vf_coef"],
             max_grad_norm=model_params["max_grad_norm"],
             tensorboard_log=log_dir,
-            seed=seed
+            seed=seed,
         )
 
     elif model_name == "PPO":
@@ -116,8 +115,11 @@ def train(args):
             agent_mappings[args.agent]["policy"],
             env,
             verbose=2,
-            learning_rate= linear_scheduler(model_params["lr_start"], model_params["lr_end"]) \
-                if model_params["scheduler"] else model_params["learning_rate"],
+            learning_rate=linear_scheduler(
+                model_params["lr_start"], model_params["lr_end"]
+            )
+            if model_params["scheduler"]
+            else model_params["learning_rate"],
             batch_size=model_params["ppo_batch_size"],
             n_epochs=model_params["n_epochs"],
             n_steps=model_params["n_steps"],
@@ -139,6 +141,7 @@ def train(args):
     # Save model
     model.save(os.path.join(weights_dir, agent_mappings[args.agent]["name"]))
     env.close()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Rule-Based Encoder")
