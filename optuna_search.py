@@ -21,6 +21,7 @@ def optuna_search(args):
     game_name = config["environment"]["game_name"]
     seed = config["environment"]["seed"]
     model_name = config["model"]["name"]
+    n_envs = config["environment"]["number"]
 
     agent_mappings = {
         "player+ball": {
@@ -74,7 +75,6 @@ def optuna_search(args):
         }
 
     def objective(trial):
-        n_envs = trial.suggest_categorical("n_envs", [4, 8, 16])
 
         env = make_atari_env(
             game_name, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs
@@ -97,13 +97,11 @@ def optuna_search(args):
 
         # Sample hyperparameters
         n_steps = trial.suggest_categorical("n_steps", [256, 512, 1024, 2048])
-        gamma = trial.suggest_float("gamma", 0.9, 0.9999, log=True)
         ent_coef = trial.suggest_float("ent_coef", 1e-4, 0.1, log=True)
         clip_range = trial.suggest_float("clip_range", 0.05, 0.4)
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-3)
-        gae_lambda = trial.suggest_float("gae_lambda", 0.8, 1.0, log=True)
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
-        n_epochs = trial.suggest_categorical("n_epochs", [5, 10, 20, 30])
+        n_epochs = trial.suggest_categorical("n_epochs", [5, 10, 20])
 
         if model_name == "A2C":
             model = A2C(
@@ -112,8 +110,8 @@ def optuna_search(args):
                 verbose=2,
                 learning_rate=learning_rate["learning_rate"],
                 n_steps=n_steps,
-                gamma=gamma,
-                gae_lambda=gae_lambda,
+                gamma=config["model"]["gamma"],
+                gae_lambda= config["model"]["gae_lambda"],
                 ent_coef=ent_coef,
                 vf_coef=config["model"]["vf_coef"],
                 max_grad_norm=config["model"]["max_grad_norm"],
@@ -126,7 +124,7 @@ def optuna_search(args):
                 agent_mappings[args.agent]["policy"],
                 env,
                 verbose=1,
-                learning_rate=linear_scheduler(learning_rate, learning_rate * 0.5),
+                learning_rate=linear_scheduler(learning_rate, learning_rate * (1 - config["training"]["num_episodes"] / 10e6)),
                 batch_size=batch_size,
                 n_epochs=n_epochs,
                 n_steps=n_steps,
@@ -155,7 +153,7 @@ def optuna_search(args):
 
         # Evaluate the model
         mean_reward, _ = evaluate_policy(
-            model, env, n_eval_episodes=5, deterministic=True
+            model, env, n_eval_episodes=5
         )
 
         return mean_reward
