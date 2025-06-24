@@ -101,7 +101,6 @@ def test(args):
         }
     else:
         wrapper_kwargs = {
-            "greyscale": True if args.agent in ["transformer", "deep_sets"] else False,
             "screen_size": -1,
             "clip_reward": False,
             "terminal_on_life_loss": False,

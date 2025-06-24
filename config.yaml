@@ -15,8 +15,6 @@ model:
   learning_rate: 0.0003 # Ignored if linear_scheduler is true
   gamma: 0.99
   scheduler: false # Use linear learning rate scheduler
-  lr_start: 0.0003 # Initial learning rate
-  lr_end: 0.000125 # Final learning rate
 
   # Actor-Critic parameters (A2C and PPO)
   n_steps: 2048
@@ -30,4 +28,4 @@ model:
 
 
 training:
-  num_episodes: 5000000 # Number of episodes to train
+  num_steps: 1000000 # Number of episodes to train

@@ -40,6 +40,8 @@ class BreakoutEncoder:
             self.ball_x[i] = self.ball_y[i] = -2.0
             self.ball_dx[i] = self.ball_dy[i] = 0.0
 
+        self.last_paddle_x = np.zeros(self.num_envs)  # Track last paddle position
+
     def __call__(self, states: np.ndarray) -> np.ndarray:
         """Encodes a batch of frames into feature spaces by return paddle position and ball position + velocity.
         Args:
@@ -51,28 +53,37 @@ class BreakoutEncoder:
 
         for i, state in enumerate(states):
             # Crop the frame
-            frame = state[31:, 8:-8] if state.ndim == 3 else state[0, 31:, 8:-8]
+            frame = state[31:, 8:-8]
 
-            # Get the ball and player information (they both have the same color)
-            color_mask = (frame[:, :, 0] > 195) & (frame[:, :, 1] < 80)
-            num_labels, _, stats, _ = cv2.connectedComponentsWithStats(
-                color_mask.astype(np.uint8)
+            edges = cv2.adaptiveThreshold(
+                frame,
+                maxValue=255,
+                adaptiveMethod=cv2.ADAPTIVE_THRESH_MEAN_C,
+                thresholdType=cv2.THRESH_BINARY,
+                blockSize=3,
+                C=0,
+            )
+
+            # Find contours in the binary mask
+            contours, _ = cv2.findContours(
+                edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
 
             ball_found = False
-            player_x = 0.0  # Default center position if not found
+            player_x = self.last_paddle_x[i]  # Default to last known paddle position
 
-            for j in range(1, num_labels):  # skip label 0 (background)
-                x, y, _, _, area = stats[j]
+            for contour in contours:
+                x, y, w, h = cv2.boundingRect(contour)
                 x_norm = 2 * x / frame.shape[1] - 1
                 y_norm = 2 * y / frame.shape[0] - 1
 
                 # Detect the player
-                if 31 < area < 80:
+                if h == 4 and y == 158:
                     player_x = x_norm
+                    self.last_paddle_x[i] = player_x
 
                 # Detect the ball
-                elif 2 < area < 15:
+                elif w == 2 and h == 4:
                     ball_found = True
                     if self.ball_x[i] != -2.0 or self.ball_y[i] != -2.0:
                         self.ball_dx[i] = x_norm - self.ball_x[i]
@@ -80,13 +91,16 @@ class BreakoutEncoder:
                     self.ball_x[i] = x_norm
                     self.ball_y[i] = y_norm
 
-            # Handle Missing Ball
+            # Handle missing ball
             if not ball_found:
                 # Make sure the ball is not out of bounds
                 if self.ball_y[i] >= 1.0:
                     self.reset([i])
-                self.ball_x[i] += self.ball_dx[i]
-                self.ball_y[i] += self.ball_dy[i]
+                else:
+                    self.ball_x[i] += self.ball_dx[i]
+                    self.ball_y[i] += self.ball_dy[i]
+                    self.ball_x[i] = np.clip(self.ball_x[i], -1.0, 1.0)
+                    self.ball_y[i] = np.clip(self.ball_y[i], -1.0, 1.1)
 
             if self.method == "paddle+ball":
                 # Build feature vector
@@ -103,13 +117,9 @@ class BreakoutEncoder:
             # Brick detection
             elif self.method == "bricks+paddle+ball":
                 # Extract the bricks zone from the frame
-                bricks_zone = frame[self.bricks_y_start : self.bricks_y_end, :, :]
+                bricks_zone = frame[self.bricks_y_start : self.bricks_y_end, :]
                 # Create a mask for bricks (assuming bricks are colored differently)
-                brick_mask = (
-                    (bricks_zone[:, :, 0] > 0)
-                    & (bricks_zone[:, :, 1] > 0)
-                    & (bricks_zone[:, :, 2] > 0)
-                )
+                brick_mask = bricks_zone[:, :] > 0
                 # Reshape the brick_mask into a grid of layers and bricks
                 reshaped_mask = brick_mask.reshape(
                     self.num_brick_layers,

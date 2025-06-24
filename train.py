@@ -86,7 +86,6 @@ def train(args):
         wrapper_kwargs = {}
     else:
         wrapper_kwargs = {
-            "greyscale": True if args.agent in ["transformer", "deep_sets"] else False,
             "screen_size": -1,
             "max_pool": False,
         }
@@ -138,7 +137,9 @@ def train(args):
             env,
             verbose=2,
             learning_rate=linear_scheduler(
-                model_params["lr_start"], model_params["lr_end"]
+                model_params["learning_rate"],
+                model_params["learning_rate"]
+                * (1 - config["training"]["num_steps"] / 1e7),
             )
             if model_params["scheduler"]
             else model_params["learning_rate"],
@@ -149,14 +150,20 @@ def train(args):
             gae_lambda=model_params["gae_lambda"],
             ent_coef=model_params["ent_coef"],
             vf_coef=model_params["vf_coef"],
-            clip_range=linear_scheduler(model_params["clip_range"], 0.05),
+            clip_range=linear_scheduler(
+                model_params["clip_range"],
+                model_params["clip_range"]
+                * (1 - config["training"]["num_steps"] / 1e7),
+            )
+            if model_params["scheduler"]
+            else model_params["clip_range"],
             max_grad_norm=model_params["max_grad_norm"],
             tensorboard_log=log_dir,
             seed=seed,
         )
 
     model.learn(
-        total_timesteps=config["training"]["num_episodes"],
+        total_timesteps=config["training"]["num_steps"],
         tb_log_name=agent_mappings[args.agent]["name"],
     )
 
