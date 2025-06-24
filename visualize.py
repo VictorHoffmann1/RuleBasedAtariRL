@@ -2,7 +2,8 @@ import os
 from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
-from components.encoder import RuleBasedEncoder
+from components.encoders.breakout_encoder import BreakoutEncoder
+from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.naive_agent import NaiveAgent
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
 import yaml
@@ -16,50 +17,72 @@ def test(args):
         config = yaml.safe_load(f)
 
     game_name = config["environment"]["game_name"]
-    seed = config["environment"]["seed"]
+    seed = args.seed
     model_name = config["model"]["name"]
+
+    rb_encoder = {
+        "BreakoutNoFrameskip-v4": BreakoutEncoder,
+        # "PongNoFrameskip-v4": PongEncoder,
+    }
 
     agent_mappings = {
         "player+ball": {
-            "encoding_method": "paddle+ball",
+            "encoder": rb_encoder[game_name](
+                encoding_method="paddle+ball",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=1,
+            ),
             "n_features": 5,
-            "name": model_name + "_rb_player_ball",
+            "name": model_name + "_rb_player_ball_" + args.model,
             "n_stack": None,
         },
         "player+ball+bricks": {
-            "encoding_method": "bricks+paddle+ball",
+            "encoder": rb_encoder[game_name](
+                encoding_method="bricks+paddle+ball",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=1,
+            ),
             "n_features": 113,
-            "name": model_name + "_rb_player_ball_bricks",
+            "name": model_name + "_rb_player_ball_bricks_" + args.model,
             "n_stack": None,
         },
         "transformer": {
-            "encoding_method": "transformer",
-            "n_features": -1,
-            "name": model_name + "_rb_transformer",
+            "encoder": ObjectDiscoveryEncoder(
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=1,
+                max_objects=config["encoder"]["max_objects"],
+            ),
+            "n_features": 8,
+            "name": model_name + "_rb_transformer_" + args.model,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "deep_sets": {
-            "encoding_method": "transformer",
-            "n_features": 9,
-            "name": model_name + "_rb_deep_sets",
+            "encoder": ObjectDiscoveryEncoder(
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=1,
+                max_objects=config["encoder"]["max_objects"],
+            ),
+            "n_features": 8,
+            "name": model_name + "_rb_deep_sets_" + args.model,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "cnn": {
-            "encoding_method": "cnn",
+            "encoder": None,  # CNN does not require a custom encoder
             "n_features": -1,
-            "name": model_name + "_cnn",
+            "name": model_name + "_cnn_" + args.model,
             "n_stack": 4,  # Stack frames for CNN
         },
         "rule_based": {
-            "encoding_method": "rule_based",
-            "n_features": -1,
-            "name": None,
+            "encoder": rb_encoder[game_name](
+                encoding_method="paddle+ball",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=1,
+            ),
+            "n_features": 5,
+            "name": None,  # No model to load for rule-based agent
             "n_stack": None,  # No stacking for rule-based agent
         },
     }
-
-    n_features = agent_mappings[args.agent]["n_features"]
-    config["encoder"]["encoding_method"] = agent_mappings[args.agent]["encoding_method"]
 
     model_path = "./weights"
     video_folder = "./videos/"
@@ -71,10 +94,11 @@ def test(args):
     x_offset = 8
     y_offset = 31
 
-    encoder = RuleBasedEncoder(**config["encoder"])
-
     if args.agent == "cnn":
-        wrapper_kwargs = {}
+        wrapper_kwargs = {
+            "clip_reward": False,
+            "terminal_on_life_loss": False,
+        }
     else:
         wrapper_kwargs = {
             "greyscale": True if args.agent in ["transformer", "deep_sets"] else False,
@@ -84,16 +108,21 @@ def test(args):
             "max_pool": False,
         }
 
+    encoder = agent_mappings[args.agent]["encoder"]
     env = make_atari_env(game_name, n_envs=1, seed=seed, wrapper_kwargs=wrapper_kwargs)
 
     if args.agent == "cnn":
-        env = VecFrameStack(env, n_stack=agent_mappings[args.agent]["n_stack"])
         env = VecTransposeImage(env)  # Transpose for CNN input
-        load_env = env
+    if agent_mappings[args.agent]["n_stack"] is not None:
+        env = VecFrameStack(env, n_stack=agent_mappings[args.agent]["n_stack"])
+    if encoder is not None:
+        load_env = EncoderWrapper(
+            env,
+            encoder,
+            agent_mappings[args.agent]["n_features"],
+        )
     else:
-        if args.agent in ["transformer", "deep_sets"]:
-            env = VecFrameStack(env, n_stack=agent_mappings[args.agent]["n_stack"])
-        load_env = EncoderWrapper(env, encoder, n_features)
+        load_env = env
 
     if args.agent == "rule_based":
         model = NaiveAgent()
@@ -126,20 +155,21 @@ def test(args):
     done = [False]
 
     # Prepare video writer for encoder visualization
-    frame_height, frame_width, _ = obs[0].shape
+    frame_height, frame_width, channel = obs[0].shape
     out = cv2.VideoWriter(
         debug_video_path,
         cv2.VideoWriter_fourcc(*"mp4v"),
         30,  # FPS
         (frame_width * upscale_factor, frame_height * upscale_factor),
+        isColor=True if channel == 3 else False,
     )
 
     print("Starting test...")
     total_reward = 0
     step_count = 0
     while not done[0]:
-        features = obs if args.agent == "cnn" else encoder(obs)
-        actions, _ = model.predict(features, deterministic=True)
+        features = obs if encoder is None else encoder(obs)
+        actions, _ = model.predict(features, deterministic=False)
         action = actions[0]
 
         # --- Visualization ---
@@ -161,7 +191,7 @@ def test(args):
             # Draw ball position (red circle)
             cv2.circle(vis_frame, (bx, by), 1, (0, 0, 255), -1)
 
-            if args.agent == "player+ball+bricks":
+            if "bricks" in args.agent:
                 # Bricks: shape (num_brick_layers, num_bricks_per_layer)
                 bricks_flat = features[0][5:]
                 bricks = bricks_flat.reshape(
@@ -180,6 +210,9 @@ def test(args):
                             x1 = x0 + brick_w
                             y1 = y0 + brick_h
                             cv2.rectangle(vis_frame, (x0, y0), (x1, y1), (0, 255, 0), 1)
+
+        if agent_mappings[args.agent]["n_stack"] is not None:
+            vis_frame = vis_frame[:, :, 0]  # Convert to grayscale if stacked
 
         # Upscale for visibility
         vis_frame = cv2.resize(
@@ -217,6 +250,18 @@ if __name__ == "__main__":
         ],
         required=True,
         help="The agent type to test.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="",
+        help="The model type to evaluate.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility.",
     )
     args = parser.parse_args()
     test(args)
