@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 from typing import List, Optional
-import numpy as np
 
 
 class RuleBasedEncoder:
@@ -10,27 +9,23 @@ class RuleBasedEncoder:
     def __init__(
         self,
         encoding_method: str = "paddle+ball",
-        num_brick_layers: int = 6,
-        num_bricks_per_layer: int = 18,
-        bricks_y_start: int = 26,
-        bricks_y_end: int = 62,
-        frame_x_size: int = 160,
         speed_scale: float = 10.0,
-        max_objects: int = 256,
         num_envs: int = 1,
     ):
+        frame_x_size = 160
+        num_brick_layers = 6
+        num_bricks_per_layer = 18
         self.method = encoding_method
-        self.bricks_y_start, self.bricks_y_end = int(bricks_y_start), int(bricks_y_end)
+        self.bricks_y_start, self.bricks_y_end = 26, 62
         bricks_shape = (self.bricks_y_end - self.bricks_y_start, frame_x_size)
-        self.num_brick_layers = num_brick_layers
-        self.num_bricks_per_layer = num_bricks_per_layer
+        self.num_brick_layers = 6
+        self.num_bricks_per_layer = 18
         self.brick_x_length = bricks_shape[1] // num_bricks_per_layer
         self.brick_y_length = bricks_shape[0] // num_brick_layers
         self.num_envs = num_envs
         self.ball_x, self.ball_y = np.zeros(num_envs), np.zeros(num_envs)
         self.ball_dx, self.ball_dy = np.zeros(num_envs), np.zeros(num_envs)
         self.speed_scale = speed_scale  # Scale to normalize the ball speed
-        self.max_objects = max_objects
         self.reset()
 
     def reset(self, indices: Optional[List[int]] = None):
@@ -45,9 +40,7 @@ class RuleBasedEncoder:
             self.ball_x[i] = self.ball_y[i] = -2.0
             self.ball_dx[i] = self.ball_dy[i] = 0.0
 
-    def simple_method(
-        self, states: np.ndarray, method: str = "paddle+ball"
-    ) -> np.ndarray:
+    def encode(self, states: np.ndarray, method: str = "paddle+ball") -> np.ndarray:
         """Encodes a batch of frames into feature spaces by return paddle position and ball position + velocity.
         Args:
             states: Batch of input frames [num_envs, H, W, C]
@@ -145,7 +138,6 @@ class RuleBasedEncoder:
 
             else:
                 raise ValueError(f"Unknown method: {method}")
-
             batch_features.append(features)
 
         return np.stack(batch_features)  # [num_envs, feature_dim]
@@ -192,12 +184,12 @@ class RuleBasedEncoder:
             aspect_ratios = []
             lengths = []
             is_convex = []
-            colors = []
+            # colors = []
             for contour in contours:
                 areas.append(cv2.contourArea(contour))
                 x, y, w, h = cv2.boundingRect(contour)
                 coords.append([x, y])  # Center of bounding box
-                colors.append(frame[y + h // 2, x + w // 2])  # Color at center of bbox
+                # colors.append(frame[y + h // 2, x + w // 2])  # Color at center of bbox
                 aspect_ratios.append(w / h if h > 0 else 0.0)
                 lengths.append(cv2.arcLength(contour, closed=True))
                 is_convex.append(float(cv2.isContourConvex(contour)))
@@ -207,7 +199,7 @@ class RuleBasedEncoder:
             aspect_ratios_np = np.array(aspect_ratios, dtype=np.float32)
             lengths_np = np.array(lengths, dtype=np.float32)
             is_convex_np = np.array(is_convex, dtype=np.float32)
-            colors_np = np.array(colors, dtype=np.float32)
+            # colors_np = np.array(colors, dtype=np.float32)
 
             assert len(coords_np) == len(contours), (
                 f"Number of coords {len(coords_np)} does not match number of contours {len(contours)}"
@@ -232,7 +224,7 @@ class RuleBasedEncoder:
             )
 
             # Extract features for each contour (centroid, speed, area, aspect ratio, length, isConvex, color)
-            feature_vectors = np.zeros((len(contours), 9), dtype=np.float32)
+            feature_vectors = np.zeros((len(contours), 8), dtype=np.float32)
             feature_vectors[:, 0:2] = (
                 2
                 * coords_np.reshape(-1, 2)
@@ -247,9 +239,9 @@ class RuleBasedEncoder:
             feature_vectors[:, 5] = np.log(aspect_ratios_np + 1e-8)  # Aspect ratio
             feature_vectors[:, 6] = np.log1p(lengths_np)  # Length (log-scaled)
             feature_vectors[:, 7] = 2 * is_convex_np - 1  # Is convex (-1 or 1)
-            feature_vectors[:, 8] = (
-                2 * colors_np / 255.0 - 1
-            )  # Color normalized to [-1, 1]
+            # feature_vectors[:, 8] = (
+            #    2 * colors_np / 255.0 - 1
+            # )  # Color normalized to [-1, 1]
 
             # Pad / Truncate to max_objects
             if len(feature_vectors) < self.max_objects:
@@ -264,7 +256,7 @@ class RuleBasedEncoder:
             # Ensure the feature vector has the correct shape
             assert feature_vectors.shape == (
                 self.max_objects,
-                9,
+                8,
             ), f"Feature vector shape mismatch: {feature_vectors.shape}"
 
             batch_features.append(feature_vectors)
@@ -280,7 +272,7 @@ class RuleBasedEncoder:
         """
 
         if self.method in ["paddle+ball", "bricks+paddle+ball"]:
-            return self.simple_method(states, method=self.method)
+            return self.encode(states, method=self.method)
         elif self.method == "transformer":
             return self.build_feature_vectors(states)
         else:

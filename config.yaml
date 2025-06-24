@@ -4,11 +4,6 @@ environment:
   seed: 42
 
 encoder:
-  num_brick_layers: 6
-  num_bricks_per_layer: 18
-  bricks_y_start: 26.0 # y coord where the bricks begin to appear
-  bricks_y_end: 62.0 # y coord where the bricks stop to appear
-  frame_x_size: 160
   speed_scale: 10.0
   num_envs: *num_envs
   max_objects: 64 # Maximum number of objects to encode for transformer / deepsets method

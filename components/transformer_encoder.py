@@ -51,6 +51,6 @@ class CustomTransformerPolicy(ActorCriticPolicy):
             action_space,
             lr_schedule,
             features_extractor_class=TransformerFeaturesExtractor,
-            features_extractor_kwargs=dict(n_features=9, num_heads=4, num_layers=2),
+            features_extractor_kwargs=dict(n_features=8, num_heads=2, num_layers=2),
             **kwargs,
         )

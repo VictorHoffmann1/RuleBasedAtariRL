@@ -4,7 +4,7 @@ from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.encoder import RuleBasedEncoder
 from components.naive_agent import NaiveAgent
-from stable_baselines3.common.vec_env import VecFrameStack
+from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
 
 import yaml
 import os
@@ -28,32 +28,32 @@ def eval(args):
         "player+ball": {
             "encoding_method": "paddle+ball",
             "n_features": 5,
-            "name": model_name + "_rb_player_ball_3e-4",
+            "name": model_name + "_rb_player_ball_" + args.model,
         },
         "player+ball+bricks": {
             "encoding_method": "bricks+paddle+ball",
             "n_features": 113,
-            "name": model_name + "_rb_player_ball_bricks_3e-4",
+            "name": model_name + "_rb_player_ball_bricks_" + args.model,
         },
         "transformer": {
             "encoding_method": "transformer",
-            "n_features": -1,
-            "name": model_name + "_rb_transformer",
+            "n_features": 8,
+            "name": model_name + "_rb_transformer_" + args.model,
         },
         "deep_sets": {
             "encoding_method": "transformer",
-            "n_features": 9,
-            "name": model_name + "_rb_deep_sets_3e-4_max",
+            "n_features": 8,
+            "name": model_name + "_rb_deep_sets_" + args.model,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "cnn": {
             "encoding_method": "cnn",
             "n_features": -1,
-            "name": model_name + "_cnn",
+            "name": model_name + "_cnn_" + args.model,
         },
         "rule_based": {
-            "encoding_method": "rule_based",
-            "n_features": -1,
+            "encoding_method": "paddle+ball",
+            "n_features": 5,
             "name": None,
         },
     }
@@ -86,6 +86,7 @@ def eval(args):
         if args.agent == "cnn":
             # Stack frames to encode temporal information
             env = VecFrameStack(env, n_stack=4)
+            env = VecTransposeImage(env)  # Transpose for CNN input
         else:
             if args.agent in ["transformer", "deep_sets"]:
                 # Stack frames to encode temporal information
@@ -124,13 +125,35 @@ def eval(args):
 
         total_reward = 0
         step_count = 0
+        # --- Track per-life stats ---
+        per_life_reward = 0
+        per_life_step = 0
+        # Get initial lives from info dict after first step
+        actions, _ = model.predict(obs, deterministic=False)
+        obs, reward, done, info = env.step(actions)
+        if isinstance(info, list):
+            info = info[0]
+        lives = info.get("lives", None)
+        # Reset env to first obs after getting lives
+        obs = env.reset()
+        done = [False]
         while not done[0]:
             actions, _ = model.predict(obs, deterministic=False)
-
-            # --- End visualization ---
-            obs, reward, done, _ = env.step(actions)
+            # Force Fire action if the model doesn't predict it
+            if per_life_step > 300 and per_life_reward == 0.0:
+                actions[0] = 1
+            obs, reward, done, info = env.step(actions)
             step_count += 1
             total_reward += reward[0]
+            per_life_reward += reward[0]
+            per_life_step += 1
+            if isinstance(info, list):
+                info = info[0]
+            new_lives = info.get("lives", lives)
+            if new_lives < lives:
+                per_life_reward = 0
+                per_life_step = 0
+            lives = new_lives
         print(f"Seed {seed}: Reward: {total_reward}. Steps: {step_count}")
         env.close()
         total_rewards.append(total_reward)
@@ -155,6 +178,12 @@ if __name__ == "__main__":
         ],
         required=True,
         help="The agent type to evaluate.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="",
+        help="The model type to evaluate.",
     )
     args = parser.parse_args()
     eval(args)

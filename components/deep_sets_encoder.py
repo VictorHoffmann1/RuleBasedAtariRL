@@ -105,7 +105,7 @@ class CustomDeepSetPolicy(ActorCriticPolicy):
             lr_schedule,
             features_extractor_class=DeepSetsFeaturesExtractor,
             features_extractor_kwargs=dict(
-                n_features=9, hidden_dim=64, output_dim=32, pooling="max"
+                n_features=8, hidden_dim=64, output_dim=32, pooling="max"
             ),
             **kwargs,
         )

@@ -75,7 +75,6 @@ def optuna_search(args):
         }
 
     def objective(trial):
-
         env = make_atari_env(
             game_name, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs
         )
@@ -111,7 +110,7 @@ def optuna_search(args):
                 learning_rate=learning_rate["learning_rate"],
                 n_steps=n_steps,
                 gamma=config["model"]["gamma"],
-                gae_lambda= config["model"]["gae_lambda"],
+                gae_lambda=config["model"]["gae_lambda"],
                 ent_coef=ent_coef,
                 vf_coef=config["model"]["vf_coef"],
                 max_grad_norm=config["model"]["max_grad_norm"],
@@ -124,12 +123,15 @@ def optuna_search(args):
                 agent_mappings[args.agent]["policy"],
                 env,
                 verbose=1,
-                learning_rate=linear_scheduler(learning_rate, learning_rate * (1 - config["training"]["num_episodes"] / 10e6)),
+                learning_rate=linear_scheduler(
+                    learning_rate,
+                    learning_rate * (1 - config["training"]["num_episodes"] / 10e6),
+                ),
                 batch_size=batch_size,
                 n_epochs=n_epochs,
                 n_steps=n_steps,
-                gamma=gamma,
-                gae_lambda=gae_lambda,
+                gamma=config["model"]["gamma"],
+                gae_lambda=config["model"]["gae_lambda"],
                 ent_coef=ent_coef,
                 vf_coef=config["model"]["vf_coef"],
                 clip_range=clip_range,
@@ -138,23 +140,13 @@ def optuna_search(args):
                 seed=seed,
             )
 
-        print(f"Training {args.agent} agent with hyperparameters:")
-        print(
-            f"n_envs: {n_envs}, n_steps: {n_steps}, gamma: {gamma}, "
-            f"ent_coef: {ent_coef}, clip_range: {clip_range}, "
-            f"learning_rate: {learning_rate}, gae_lambda: {gae_lambda}, "
-            f"batch_size: {batch_size}, n_epochs: {n_epochs}"
-        )
-
         model.learn(
             total_timesteps=config["training"]["num_episodes"],
             tb_log_name=agent_mappings[args.agent]["name"],
         )
 
         # Evaluate the model
-        mean_reward, _ = evaluate_policy(
-            model, env, n_eval_episodes=5
-        )
+        mean_reward, _ = evaluate_policy(model, env, n_eval_episodes=5)
 
         return mean_reward
 

@@ -30,7 +30,7 @@ class EncoderWrapper(VecEnvWrapper):
         self.encoder = encoder
         shape = (
             (self.encoder.max_objects, n_features)
-            if self.encoder.method == "transformer"
+            if self.encoder.method == "object_discovery"
             else (n_features,)
         )
         self.observation_space = spaces.Box(
