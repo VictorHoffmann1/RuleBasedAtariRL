@@ -35,7 +35,7 @@ def train(args):
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
             ),
-            "n_features": 5,
+            "n_features": 5 if "Breakout" in game_name else 6,
             "name": model_name + "_rb_player_ball",
             "policy": "MlpPolicy",
             "n_stack": None,
