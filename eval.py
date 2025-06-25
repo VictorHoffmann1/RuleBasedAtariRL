@@ -1,8 +1,8 @@
-import os
 from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.encoders.breakout_encoder import BreakoutEncoder
+from components.encoders.pong_encoder import PongEncoder
 from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.naive_agent import NaiveAgent
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
@@ -33,7 +33,7 @@ def eval(
 
     rb_encoder = {
         "BreakoutNoFrameskip-v4": BreakoutEncoder,
-        # "PongNoFrameskip-v4": PongEncoder,
+        "PongNoFrameskip-v4": PongEncoder,
     }
     agent_mappings = {
         "player+ball": {
@@ -42,7 +42,7 @@ def eval(
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=1,
             ),
-            "n_features": 5,
+            "n_features": 5 if "Breakout" in game_name else 6,
             "name": model_name + "_rb_player_ball_" + model_extension,
             "policy": "MlpPolicy",
             "n_stack": None,

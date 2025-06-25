@@ -1,6 +1,5 @@
 from stable_baselines3 import A2C, PPO
 from stable_baselines3.common.vec_env import VecFrameStack
-from stable_baselines3.common.evaluation import evaluate_policy
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.encoders.breakout_encoder import BreakoutEncoder
@@ -8,6 +7,7 @@ from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.transformer_encoder import CustomTransformerPolicy
 from components.deep_sets_encoder import CustomDeepSetPolicy
 from components.schedulers import linear_scheduler
+from eval import eval
 import yaml
 import os
 import argparse
@@ -37,7 +37,7 @@ def optuna_search(args):
                 num_envs=n_envs,
             ),
             "n_features": 5,
-            "name": model_name + "_rb_player_ball",
+            "name": model_name + "_rb_player_ball" + "_optuna",
             "policy": "MlpPolicy",
             "n_stack": None,
         },
@@ -48,7 +48,7 @@ def optuna_search(args):
                 num_envs=n_envs,
             ),
             "n_features": 113,
-            "name": model_name + "_rb_player_ball_bricks",
+            "name": model_name + "_rb_player_ball_bricks" + "_optuna",
             "policy": "MlpPolicy",
             "n_stack": None,
         },
@@ -59,7 +59,7 @@ def optuna_search(args):
                 max_objects=config["encoder"]["max_objects"],
             ),
             "n_features": 8,
-            "name": model_name + "_rb_transformer",
+            "name": model_name + "_rb_transformer" + "_optuna",
             "policy": CustomTransformerPolicy,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
@@ -70,14 +70,14 @@ def optuna_search(args):
                 max_objects=config["encoder"]["max_objects"],
             ),
             "n_features": 8,
-            "name": model_name + "_rb_deep_sets",
+            "name": model_name + "_rb_deep_sets" + "_optuna",
             "policy": CustomDeepSetPolicy,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "cnn": {
             "encoder": None,  # CNN does not require a custom encoder
             "n_features": -1,
-            "name": model_name + "_cnn",
+            "name": model_name + "_cnn" + "_optuna",
             "policy": "CnnPolicy",
             "n_stack": 4,  # Stack frames for CNN
         },
@@ -155,7 +155,9 @@ def optuna_search(args):
                 gae_lambda=config["model"]["gae_lambda"],
                 ent_coef=ent_coef,
                 vf_coef=config["model"]["vf_coef"],
-                clip_range=clip_range,
+                clip_range=linear_scheduler(
+                    clip_range, clip_range * (1 - config["training"]["num_steps"] / 1e7)
+                ),
                 max_grad_norm=config["model"]["max_grad_norm"],
                 tensorboard_log=log_dir,
                 seed=seed,
@@ -167,7 +169,12 @@ def optuna_search(args):
         )
 
         # Evaluate the model
-        mean_reward, _ = evaluate_policy(model, env, n_eval_episodes=10)
+        mean_reward, _ = eval(
+            agent=args.agent,
+            model=model,
+            deterministic=True,
+            verbose=False,
+        )
 
         return mean_reward
 

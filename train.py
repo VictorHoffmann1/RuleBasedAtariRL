@@ -2,6 +2,7 @@ from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.encoders.breakout_encoder import BreakoutEncoder
+from components.encoders.pong_encoder import PongEncoder
 from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.transformer_encoder import CustomTransformerPolicy
 from components.deep_sets_encoder import CustomDeepSetPolicy
@@ -25,7 +26,7 @@ def train(args):
 
     rb_encoder = {
         "BreakoutNoFrameskip-v4": BreakoutEncoder,
-        # "PongNoFrameskip-v4": PongEncoder,
+        "PongNoFrameskip-v4": PongEncoder,
     }
 
     agent_mappings = {
