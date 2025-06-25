@@ -3,7 +3,8 @@ from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.evaluation import evaluate_policy
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
-from components.encoder import RuleBasedEncoder
+from components.encoders.breakout_encoder import BreakoutEncoder
+from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.transformer_encoder import CustomTransformerPolicy
 from components.deep_sets_encoder import CustomDeepSetPolicy
 from components.schedulers import linear_scheduler
@@ -23,53 +24,69 @@ def optuna_search(args):
     model_name = config["model"]["name"]
     n_envs = config["environment"]["number"]
 
+    rb_encoder = {
+        "BreakoutNoFrameskip-v4": BreakoutEncoder,
+        # "PongNoFrameskip-v4": PongEncoder,
+    }
+
     agent_mappings = {
         "player+ball": {
-            "encoding_method": "paddle+ball",
+            "encoder": rb_encoder[game_name](
+                encoding_method="paddle+ball",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+            ),
             "n_features": 5,
-            "name": model_name + "_rb_player_ball" + "_optuna",
+            "name": model_name + "_rb_player_ball",
             "policy": "MlpPolicy",
             "n_stack": None,
         },
         "player+ball+bricks": {
-            "encoding_method": "bricks+paddle+ball",
+            "encoder": rb_encoder[game_name](
+                encoding_method="bricks+paddle+ball",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+            ),
             "n_features": 113,
-            "name": model_name + "_rb_player_ball_bricks" + "_optuna",
+            "name": model_name + "_rb_player_ball_bricks",
             "policy": "MlpPolicy",
             "n_stack": None,
         },
         "transformer": {
-            "encoding_method": "transformer",
-            "n_features": 9,
-            "name": model_name + "_rb_transformer" + "_optuna",
+            "encoder": ObjectDiscoveryEncoder(
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+                max_objects=config["encoder"]["max_objects"],
+            ),
+            "n_features": 8,
+            "name": model_name + "_rb_transformer",
             "policy": CustomTransformerPolicy,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "deep_sets": {
-            "encoding_method": "transformer",
-            "n_features": 9,
-            "name": model_name + "_rb_deep_sets" + "_optuna",
+            "encoder": ObjectDiscoveryEncoder(
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+                max_objects=config["encoder"]["max_objects"],
+            ),
+            "n_features": 8,
+            "name": model_name + "_rb_deep_sets",
             "policy": CustomDeepSetPolicy,
             "n_stack": 2,  # Stack frames for temporal encoding
         },
         "cnn": {
-            "encoding_method": "cnn",
+            "encoder": None,  # CNN does not require a custom encoder
             "n_features": -1,
-            "name": model_name + "_cnn" + "_optuna",
+            "name": model_name + "_cnn",
             "policy": "CnnPolicy",
             "n_stack": 4,  # Stack frames for CNN
         },
     }
 
-    n_features = agent_mappings[args.agent]["n_features"]
-    config["encoder"]["encoding_method"] = agent_mappings[args.agent]["encoding_method"]
-    encoder = RuleBasedEncoder(**config["encoder"])
-
     if args.agent == "cnn":
         wrapper_kwargs = {}
     else:
         wrapper_kwargs = {
-            "greyscale": True if args.agent in ["transformer", "deep_sets"] else False,
             "screen_size": -1,
             "max_pool": False,
         }
@@ -79,11 +96,15 @@ def optuna_search(args):
             game_name, n_envs=n_envs, seed=seed, wrapper_kwargs=wrapper_kwargs
         )
 
-        if args.agent in ["transformer", "deep_sets", "cnn"]:
+        if agent_mappings[args.agent]["n_stack"] is not None:
             # Stack frames to encode temporal information
             env = VecFrameStack(env, n_stack=agent_mappings[args.agent]["n_stack"])
-        if args.agent != "cnn":
-            env = EncoderWrapper(env, encoder, n_features)
+        if agent_mappings[args.agent]["encoder"] is not None:
+            env = EncoderWrapper(
+                env,
+                agent_mappings[args.agent]["encoder"],
+                agent_mappings[args.agent]["n_features"],
+            )
 
         # Set up TensorBoard log directory
         log_dir = "./logs/"
@@ -95,12 +116,12 @@ def optuna_search(args):
             os.makedirs(weights_dir)
 
         # Sample hyperparameters
-        n_steps = trial.suggest_categorical("n_steps", [256, 512, 1024, 2048])
+        n_steps = trial.suggest_categorical("n_steps", [128, 256, 512, 1024, 2048])
         ent_coef = trial.suggest_float("ent_coef", 1e-4, 0.1, log=True)
-        clip_range = trial.suggest_float("clip_range", 0.05, 0.4)
+        clip_range = trial.suggest_float("clip_range", 0.05, 0.5)
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-3)
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
-        n_epochs = trial.suggest_categorical("n_epochs", [5, 10, 20])
+        n_epochs = trial.suggest_categorical("n_epochs", [4, 5, 8, 10])
 
         if model_name == "A2C":
             model = A2C(
@@ -125,7 +146,7 @@ def optuna_search(args):
                 verbose=1,
                 learning_rate=linear_scheduler(
                     learning_rate,
-                    learning_rate * (1 - config["training"]["num_episodes"] / 10e6),
+                    learning_rate * (1 - config["training"]["num_steps"] / 1e7),
                 ),
                 batch_size=batch_size,
                 n_epochs=n_epochs,
@@ -141,12 +162,12 @@ def optuna_search(args):
             )
 
         model.learn(
-            total_timesteps=config["training"]["num_episodes"],
+            total_timesteps=config["training"]["num_steps"],
             tb_log_name=agent_mappings[args.agent]["name"],
         )
 
         # Evaluate the model
-        mean_reward, _ = evaluate_policy(model, env, n_eval_episodes=5)
+        mean_reward, _ = evaluate_policy(model, env, n_eval_episodes=10)
 
         return mean_reward
 

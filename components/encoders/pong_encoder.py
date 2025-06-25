@@ -3,29 +3,24 @@ import cv2
 from typing import List, Optional
 
 
-class BreakoutEncoder:
+class PongEncoder:
     """Rule-based encoder for Atari games with batched environment support."""
 
     def __init__(
         self,
-        encoding_method: str = "paddle+ball",
+        encoding_method: str = "paddle+ball",  # Not used
         speed_scale: float = 10.0,
         num_envs: int = 1,
     ):
-        frame_x_size = 160
-        num_brick_layers = 6
-        num_bricks_per_layer = 18
         self.method = encoding_method
-        self.bricks_y_start, self.bricks_y_end = 26, 62
-        bricks_shape = (self.bricks_y_end - self.bricks_y_start, frame_x_size)
-        self.num_brick_layers = 6
-        self.num_bricks_per_layer = 18
-        self.brick_x_length = bricks_shape[1] // num_bricks_per_layer
-        self.brick_y_length = bricks_shape[0] // num_brick_layers
         self.num_envs = num_envs
         self.ball_x, self.ball_y = np.zeros(num_envs), np.zeros(num_envs)
         self.ball_dx, self.ball_dy = np.zeros(num_envs), np.zeros(num_envs)
         self.speed_scale = speed_scale  # Scale to normalize the ball speed
+        self.last_player_y = np.zeros(self.num_envs)  # Track last paddle position
+        self.last_oppopent_y = np.zeros(
+            self.num_envs
+        )  # Track last opponent paddle position
         self.reset()
 
     def reset(self, indices: Optional[List[int]] = None):
@@ -39,8 +34,6 @@ class BreakoutEncoder:
         for i in indices:
             self.ball_x[i] = self.ball_y[i] = -2.0
             self.ball_dx[i] = self.ball_dy[i] = 0.0
-
-        self.last_paddle_x = np.zeros(self.num_envs)  # Track last paddle position
 
     def __call__(self, states: np.ndarray) -> np.ndarray:
         """Encodes a batch of frames into feature spaces by return paddle position and ball position + velocity.
@@ -70,7 +63,10 @@ class BreakoutEncoder:
             )
 
             ball_found = False
-            player_x = self.last_paddle_x[i]  # Default to last known paddle position
+            player_y = self.last_player_y[i]  # Default to last known paddle position
+            opponent_y = self.last_oppopent_y[
+                i
+            ]  # Default to last known opponent paddle position
 
             for contour in contours:
                 x, y, w, h = cv2.boundingRect(contour)
@@ -78,9 +74,9 @@ class BreakoutEncoder:
                 y_norm = 2 * y / frame.shape[0] - 1
 
                 # Detect the player
-                if h == 4 and y == 158:
-                    player_x = x_norm
-                    self.last_paddle_x[i] = player_x
+                if w == 4 and x == 140:
+                    player_y = y_norm
+                    self.last_player_y[i] = player_y
 
                 # Detect the ball
                 elif w == 2 and h == 4:
@@ -91,63 +87,34 @@ class BreakoutEncoder:
                     self.ball_x[i] = x_norm
                     self.ball_y[i] = y_norm
 
+                # Detect the opponent paddle
+                elif w == 4 and x == 16:
+                    self.last_oppopent_y[i] = y_norm
+                    opponent_y = y_norm
+                    # Note: The opponent paddle position is not used in the feature vector
+
             # Handle missing ball
             if not ball_found:
                 # Make sure the ball is not out of bounds
-                if abs(self.ball_y[i]) >= 1.0:
+                if self.ball_y[i] >= 1.0:
                     self.reset([i])
                 else:
                     self.ball_x[i] += self.ball_dx[i]
                     self.ball_y[i] += self.ball_dy[i]
                     self.ball_x[i] = np.clip(self.ball_x[i], -1.0, 1.0)
-                    self.ball_y[i] = np.clip(self.ball_y[i], -1.1, 1.1)
+                    self.ball_y[i] = np.clip(self.ball_y[i], -1.0, 1.1)
 
-            if self.method == "paddle+ball":
-                # Build feature vector
-                features = np.array(
-                    [
-                        player_x,
-                        self.ball_x[i],
-                        self.ball_y[i],
-                        self.ball_dx[i] * self.speed_scale,
-                        self.ball_dy[i] * self.speed_scale,
-                    ]
-                )
-
-            # Brick detection
-            elif self.method == "bricks+paddle+ball":
-                # Extract the bricks zone from the frame
-                bricks_zone = frame[self.bricks_y_start : self.bricks_y_end, :]
-                # Create a mask for bricks (assuming bricks are colored differently)
-                brick_mask = bricks_zone[:, :] > 0
-                # Reshape the brick_mask into a grid of layers and bricks
-                reshaped_mask = brick_mask.reshape(
-                    self.num_brick_layers,
-                    self.brick_y_length,
-                    self.num_bricks_per_layer,
-                    self.brick_x_length,
-                )
-                # Use NumPy's any() along the appropriate axes to determine if any pixel in each brick is True
-                bricks = reshaped_mask.all(axis=(1, 3))
-
-                # Build feature vector
-                features = np.concatenate(
-                    [
-                        np.array(
-                            [
-                                player_x,
-                                self.ball_x[i],
-                                self.ball_y[i],
-                                self.ball_dx[i] * self.speed_scale,
-                                self.ball_dy[i] * self.speed_scale,
-                            ]
-                        ),
-                        bricks.flatten(),
-                    ]
-                )
-
-            else:
-                raise ValueError(f"Unknown method: {self.method}")
+            # Build feature vector
+            features = np.array(
+                [
+                    player_y,
+                    opponent_y,
+                    self.ball_x[i],
+                    self.ball_y[i],
+                    self.ball_dx[i] * self.speed_scale,
+                    self.ball_dy[i] * self.speed_scale,
+                ]
+            )
             batch_features.append(features)
 
         return np.stack(batch_features)  # [num_envs, feature_dim]

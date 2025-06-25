@@ -166,9 +166,10 @@ def test(args):
     print("Starting test...")
     total_reward = 0
     step_count = 0
+    lives = 5
     while not done[0]:
         features = obs if encoder is None else encoder(obs)
-        actions, _ = model.predict(features, deterministic=False)
+        actions, _ = model.predict(features, deterministic=args.deterministic)
         action = actions[0]
 
         # --- Visualization ---
@@ -221,9 +222,12 @@ def test(args):
         )
         out.write(vis_frame)
         # --- End visualization ---
-        obs, reward, done, _ = env.step(actions)
+        obs, reward, done, info = env.step(actions)
         step_count += 1
         total_reward += reward[0]
+        new_lives = info[0].get("lives", lives)
+        if new_lives < lives:
+            obs, _, _, info = env.step([1])  # Force Fire action
         print(
             f"Step: {step_count}, Action: {action}, Reward: {reward[0]}, Done: {done[0]}"
         )
@@ -261,6 +265,12 @@ if __name__ == "__main__":
         type=int,
         default=42,
         help="Random seed for reproducibility.",
+    )
+    parser.add_argument(
+        "--deterministic",
+        type=bool,
+        default=True,
+        help="Use deterministic actions for evaluation.",
     )
     args = parser.parse_args()
     test(args)

@@ -5,7 +5,7 @@ from components.encoders.breakout_encoder import BreakoutEncoder
 from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.transformer_encoder import CustomTransformerPolicy
 from components.deep_sets_encoder import CustomDeepSetPolicy
-from components.schedulers import exponential_scheduler, linear_scheduler
+from components.schedulers import linear_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
 import yaml
 import os
