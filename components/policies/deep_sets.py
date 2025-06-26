@@ -98,14 +98,27 @@ class DeepSetsFeaturesExtractor(BaseFeaturesExtractor):
 
 
 class CustomDeepSetPolicy(ActorCriticPolicy):
-    def __init__(self, observation_space, action_space, lr_schedule, **kwargs):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        lr_schedule,
+        n_features=8,
+        hidden_dim=64,
+        output_dim=32,
+        pooling="max",
+        **kwargs,
+    ):
         super().__init__(
             observation_space,
             action_space,
             lr_schedule,
             features_extractor_class=DeepSetsFeaturesExtractor,
             features_extractor_kwargs=dict(
-                n_features=8, hidden_dim=64, output_dim=32, pooling="max"
+                n_features=n_features,
+                hidden_dim=hidden_dim,
+                output_dim=output_dim,
+                pooling=pooling,
             ),
             **kwargs,
         )

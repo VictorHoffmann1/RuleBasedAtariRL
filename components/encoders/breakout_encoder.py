@@ -26,6 +26,10 @@ class BreakoutEncoder:
         self.ball_x, self.ball_y = np.zeros(num_envs), np.zeros(num_envs)
         self.ball_dx, self.ball_dy = np.zeros(num_envs), np.zeros(num_envs)
         self.speed_scale = speed_scale  # Scale to normalize the ball speed
+        self.last_paddle_x = np.zeros(self.num_envs)  # Track last paddle position
+        self.player_y = 2 * 158 / 179 - 1
+        self.players_dx = np.zeros(self.num_envs)  # Track paddle speed
+        self.max_objects = 110
         self.reset()
 
     def reset(self, indices: Optional[List[int]] = None):
@@ -39,8 +43,6 @@ class BreakoutEncoder:
         for i in indices:
             self.ball_x[i] = self.ball_y[i] = -2.0
             self.ball_dx[i] = self.ball_dy[i] = 0.0
-
-        self.last_paddle_x = np.zeros(self.num_envs)  # Track last paddle position
 
     def __call__(self, states: np.ndarray) -> np.ndarray:
         """Encodes a batch of frames into feature spaces by return paddle position and ball position + velocity.
@@ -80,6 +82,7 @@ class BreakoutEncoder:
                 # Detect the player
                 if h == 4 and y == 158:
                     player_x = x_norm
+                    self.players_dx[i] = x_norm - self.last_paddle_x[i]
                     self.last_paddle_x[i] = player_x
 
                 # Detect the ball
@@ -115,7 +118,7 @@ class BreakoutEncoder:
                 )
 
             # Brick detection
-            elif self.method == "bricks+paddle+ball":
+            elif "bricks" in self.method:
                 # Extract the bricks zone from the frame
                 bricks_zone = frame[self.bricks_y_start : self.bricks_y_end, :]
                 # Create a mask for bricks (assuming bricks are colored differently)
@@ -130,24 +133,72 @@ class BreakoutEncoder:
                 # Use NumPy's any() along the appropriate axes to determine if any pixel in each brick is True
                 bricks = reshaped_mask.all(axis=(1, 3))
 
-                # Build feature vector
-                features = np.concatenate(
-                    [
-                        np.array(
-                            [
-                                player_x,
-                                self.ball_x[i],
-                                self.ball_y[i],
-                                self.ball_dx[i] * self.speed_scale,
-                                self.ball_dy[i] * self.speed_scale,
-                            ]
-                        ),
-                        bricks.flatten(),
-                    ]
-                )
+                if "discovery" in self.method:
+                    # For deep sets, we will encode each object as a feature vector (x,y, dx, dy, isactive, is_player, is_ball, is_brick)
+                    player_vector = np.array(
+                        [player_x, self.player_y, self.players_dx[i], 0, 1, 1, 0, 0]
+                    )
+                    ball_vector = np.array(
+                        [
+                            self.ball_x[i],
+                            self.ball_y[i],
+                            self.ball_dx[i] * self.speed_scale,
+                            self.ball_dy[i] * self.speed_scale,
+                            1 if self.ball_x[i] != -2.0 else 0,
+                            0,  # is_player
+                            1,  # is_ball
+                            0,  # is_brick
+                        ]
+                    )
+                    # Create coordinate grids for vectorized computation
+                    j_indices, k_indices = np.meshgrid(
+                        np.arange(self.num_brick_layers),
+                        np.arange(self.num_bricks_per_layer),
+                        indexing="ij",
+                    )
+
+                    # Vectorized computation of brick positions and states
+                    bricks_vectors = np.zeros(
+                        (self.num_brick_layers, self.num_bricks_per_layer, 8)
+                    )
+                    bricks_vectors[:, :, 0] = (
+                        k_indices * self.brick_x_length / frame.shape[1] * 2 - 1
+                    )  # x positions
+                    bricks_vectors[:, :, 1] = (
+                        j_indices * self.brick_y_length / frame.shape[0] * 2 - 1
+                    )  # y positions
+                    bricks_vectors[:, :, 4] = bricks.astype(np.float32)  # is active
+                    bricks_vectors[:, :, 7] = 1  # is_brick
+
+                    # Concatenate player, ball, and bricks vectors
+                    features = np.concatenate(
+                        [
+                            player_vector.reshape(1, -1),
+                            ball_vector.reshape(1, -1),
+                            bricks_vectors.reshape(-1, len(player_vector)),
+                        ],
+                        axis=0,
+                    )
+
+                else:
+                    # Build feature vector
+                    features = np.concatenate(
+                        [
+                            np.array(
+                                [
+                                    player_x,
+                                    self.ball_x[i],
+                                    self.ball_y[i],
+                                    self.ball_dx[i] * self.speed_scale,
+                                    self.ball_dy[i] * self.speed_scale,
+                                ]
+                            ),
+                            bricks.flatten(),
+                        ]
+                    )
 
             else:
                 raise ValueError(f"Unknown method: {self.method}")
-            batch_features.append(features)
 
+            batch_features.append(features)
         return np.stack(batch_features)  # [num_envs, feature_dim]

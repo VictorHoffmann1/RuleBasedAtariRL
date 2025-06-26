@@ -28,11 +28,10 @@ class EncoderWrapper(VecEnvWrapper):
     def __init__(self, venv, encoder, n_features):
         super().__init__(venv)
         self.encoder = encoder
-        shape = (
-            (self.encoder.max_objects, n_features)
-            if self.encoder.method == "object_discovery"
-            else (n_features,)
-        )
+        if "discovery" in self.encoder.method:
+            shape = (self.encoder.max_objects, n_features)
+        else:
+            shape = (n_features,)
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=shape, dtype=np.float32
         )

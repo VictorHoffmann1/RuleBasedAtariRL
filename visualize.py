@@ -2,9 +2,8 @@ import os
 from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
-from components.encoders.breakout_encoder import BreakoutEncoder
-from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.naive_agent import NaiveAgent
+from components.agent_mappings import get_agent_mapping
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
 import yaml
 import cv2
@@ -20,69 +19,14 @@ def test(args):
     seed = args.seed
     model_name = config["model"]["name"]
 
-    rb_encoder = {
-        "BreakoutNoFrameskip-v4": BreakoutEncoder,
-        # "PongNoFrameskip-v4": PongEncoder,
-    }
-
-    agent_mappings = {
-        "player+ball": {
-            "encoder": rb_encoder[game_name](
-                encoding_method="paddle+ball",
-                speed_scale=config["encoder"]["speed_scale"],
-                num_envs=1,
-            ),
-            "n_features": 5,
-            "name": model_name + "_rb_player_ball_" + args.model,
-            "n_stack": None,
-        },
-        "player+ball+bricks": {
-            "encoder": rb_encoder[game_name](
-                encoding_method="bricks+paddle+ball",
-                speed_scale=config["encoder"]["speed_scale"],
-                num_envs=1,
-            ),
-            "n_features": 113,
-            "name": model_name + "_rb_player_ball_bricks_" + args.model,
-            "n_stack": None,
-        },
-        "transformer": {
-            "encoder": ObjectDiscoveryEncoder(
-                speed_scale=config["encoder"]["speed_scale"],
-                num_envs=1,
-                max_objects=config["encoder"]["max_objects"],
-            ),
-            "n_features": 8,
-            "name": model_name + "_rb_transformer_" + args.model,
-            "n_stack": 2,  # Stack frames for temporal encoding
-        },
-        "deep_sets": {
-            "encoder": ObjectDiscoveryEncoder(
-                speed_scale=config["encoder"]["speed_scale"],
-                num_envs=1,
-                max_objects=config["encoder"]["max_objects"],
-            ),
-            "n_features": 8,
-            "name": model_name + "_rb_deep_sets_" + args.model,
-            "n_stack": 2,  # Stack frames for temporal encoding
-        },
-        "cnn": {
-            "encoder": None,  # CNN does not require a custom encoder
-            "n_features": -1,
-            "name": model_name + "_cnn_" + args.model,
-            "n_stack": 4,  # Stack frames for CNN
-        },
-        "rule_based": {
-            "encoder": rb_encoder[game_name](
-                encoding_method="paddle+ball",
-                speed_scale=config["encoder"]["speed_scale"],
-                num_envs=1,
-            ),
-            "n_features": 5,
-            "name": None,  # No model to load for rule-based agent
-            "n_stack": None,  # No stacking for rule-based agent
-        },
-    }
+    agent_mapping = get_agent_mapping(
+        args.agent,
+        config,
+        n_envs=1,  # Single environment for testing
+        game_name=game_name,
+        model_name=model_name,
+        model_extension=args.model,
+    )
 
     model_path = "./weights"
     video_folder = "./videos/"
@@ -94,42 +38,34 @@ def test(args):
     x_offset = 8
     y_offset = 31
 
-    if args.agent == "cnn":
-        wrapper_kwargs = {
-            "clip_reward": False,
-            "terminal_on_life_loss": False,
-        }
-    else:
-        wrapper_kwargs = {
-            "screen_size": -1,
-            "clip_reward": False,
-            "terminal_on_life_loss": False,
-            "max_pool": False,
-        }
+    agent_mapping["wrapper_kwargs"]["clip_reward"] = False
+    agent_mapping["wrapper_kwargs"]["terminal_on_life_loss"] = False
 
-    encoder = agent_mappings[args.agent]["encoder"]
-    env = make_atari_env(game_name, n_envs=1, seed=seed, wrapper_kwargs=wrapper_kwargs)
+    encoder = agent_mapping["encoder"]
+    env = make_atari_env(
+        game_name, n_envs=1, seed=seed, wrapper_kwargs=agent_mapping["wrapper_kwargs"]
+    )
 
     if args.agent == "cnn":
         env = VecTransposeImage(env)  # Transpose for CNN input
-    if agent_mappings[args.agent]["n_stack"] is not None:
-        env = VecFrameStack(env, n_stack=agent_mappings[args.agent]["n_stack"])
+    if agent_mapping["n_stack"] is not None:
+        env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
     if encoder is not None:
         load_env = EncoderWrapper(
             env,
             encoder,
-            agent_mappings[args.agent]["n_features"],
+            agent_mapping["n_features"],
         )
     else:
         load_env = env
 
-    if args.agent == "rule_based":
+    if args.agent == "naive":
         model = NaiveAgent()
     else:
         # Load model
         if model_name == "A2C":
             model = A2C.load(
-                os.path.join(model_path, agent_mappings[args.agent]["name"]),
+                os.path.join(model_path, agent_mapping["name"]),
                 env=load_env,
                 seed=seed,
                 custom_objects={
@@ -139,7 +75,7 @@ def test(args):
             )
         elif model_name == "PPO":
             model = PPO.load(
-                os.path.join(model_path, agent_mappings[args.agent]["name"]),
+                os.path.join(model_path, agent_mapping["name"]),
                 env=load_env,
                 seed=seed,
                 custom_objects={
@@ -174,7 +110,7 @@ def test(args):
 
         # --- Visualization ---
         vis_frame = obs[0].copy()
-        if args.agent in ["player+ball", "player+ball+bricks", "rule_based"]:
+        if args.agent in ["player+ball", "player+ball+bricks", "naive"]:
             h, w = vis_frame.shape[:2]
             # Extract encoder features for visualization
             player_x = features[0][0]  # normalized [-1, 1]
@@ -211,7 +147,7 @@ def test(args):
                             y1 = y0 + brick_h
                             cv2.rectangle(vis_frame, (x0, y0), (x1, y1), (0, 255, 0), 1)
 
-        if agent_mappings[args.agent]["n_stack"] is not None:
+        if agent_mapping["n_stack"] is not None:
             vis_frame = vis_frame[:, :, 0]  # Convert to grayscale if stacked
 
         # Upscale for visibility
@@ -231,6 +167,9 @@ def test(args):
         print(
             f"Step: {step_count}, Action: {action}, Reward: {reward[0]}, Done: {done[0]}"
         )
+        if step_count > 5000:
+            print("Maximum step count reached, stopping test.")
+            break
     print(f"Test finished! Total reward: {total_reward}. Steps: {step_count}")
     env.close()
     out.release()
@@ -243,14 +182,6 @@ if __name__ == "__main__":
         "--agent",
         type=str,
         default="player+ball",
-        choices=[
-            "player+ball",
-            "player+ball+bricks",
-            "transformer",
-            "cnn",
-            "rule_based",
-            "deep_sets",
-        ],
         required=True,
         help="The agent type to test.",
     )
