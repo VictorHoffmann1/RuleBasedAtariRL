@@ -110,7 +110,7 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
     elif key == "player+ball+bricks+deepsets":
         agent_mapping = {
             "encoder": rb_encoder[game_name](
-                encoding_method="bricks+paddle+ball+discovery",
+                encoding_method="bricks+paddle+ball+object_vectors",
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
             ),
@@ -124,7 +124,7 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
     elif key == "player+ball+bricks+lstm":
         agent_mapping = {
             "encoder": rb_encoder[game_name](
-                encoding_method="bricks+paddle+ball+discovery",
+                encoding_method="bricks+paddle+ball+object_vectors",
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
             ),
@@ -138,13 +138,27 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
     elif key == "player+ball+bricks+gnn":
         agent_mapping = {
             "encoder": rb_encoder[game_name](
-                encoding_method="bricks+paddle+ball+discovery",
+                encoding_method="bricks+paddle+ball+object_vectors",
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
             ),
             "n_features": 8,
             "name": model_name + "_rb_player_ball_bricks_gnn" + model_extension,
             "policy": CustomGNNPolicy,
+            "use_feature_kwargs": True,
+            "n_stack": None,
+            "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
+        }
+    elif key == "player+ball+bricks+discovery":
+        agent_mapping = {
+            "encoder": rb_encoder[game_name](
+                encoding_method="bricks+paddle+ball+discovery",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+            ),
+            "n_features": 6,
+            "name": model_name + "_rb_player_ball_bricks_discovery" + model_extension,
+            "policy": CustomDeepSetPolicy,
             "use_feature_kwargs": True,
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},

@@ -26,6 +26,7 @@ class BreakoutEncoder:
         self.ball_x, self.ball_y = np.zeros(num_envs), np.zeros(num_envs)
         self.ball_dx, self.ball_dy = np.zeros(num_envs), np.zeros(num_envs)
         self.speed_scale = speed_scale  # Scale to normalize the ball speed
+        self.area_scale = 16
         self.last_paddle_x = np.zeros(self.num_envs)  # Track last paddle position
         self.player_y = 2 * 158 / 179 - 1
         self.players_dx = np.zeros(self.num_envs)  # Track paddle speed
@@ -133,7 +134,7 @@ class BreakoutEncoder:
                 # Use NumPy's any() along the appropriate axes to determine if any pixel in each brick is True
                 bricks = reshaped_mask.all(axis=(1, 3))
 
-                if "discovery" in self.method:
+                if "object_vectors" in self.method:
                     # For deep sets, we will encode each object as a feature vector (x,y, dx, dy, isactive, is_player, is_ball, is_brick)
                     player_vector = np.array(
                         [player_x, self.player_y, self.players_dx[i], 0, 1, 1, 0, 0]
@@ -169,6 +170,63 @@ class BreakoutEncoder:
                     )  # y positions
                     bricks_vectors[:, :, 4] = bricks.astype(np.float32)  # is active
                     bricks_vectors[:, :, 7] = 1  # is_brick
+
+                    # Concatenate player, ball, and bricks vectors
+                    features = np.concatenate(
+                        [
+                            player_vector.reshape(1, -1),
+                            ball_vector.reshape(1, -1),
+                            bricks_vectors.reshape(-1, len(player_vector)),
+                        ],
+                        axis=0,
+                    )
+
+                elif "discovery" in self.method:
+                    # For deep sets, we will encode each object as a feature vector (x,y, dx, dy, w, h) for active objects
+                    player_vector = np.array(
+                        [
+                            player_x,
+                            self.player_y,
+                            self.players_dx[i],
+                            0,
+                            16 / self.area_scale,
+                            4 / self.area_scale,
+                        ]
+                    )
+                    ball_vector = (
+                        np.array(
+                            [
+                                self.ball_x[i],
+                                self.ball_y[i],
+                                self.ball_dx[i] * self.speed_scale,
+                                self.ball_dy[i] * self.speed_scale,
+                                2 / self.area_scale,
+                                4 / self.area_scale,
+                            ]
+                        )
+                        if self.ball_x[i] != -2.0
+                        else np.zeros(6, dtype=np.float32)
+                    )
+                    # Create coordinate grids for vectorized computation
+                    j_indices, k_indices = np.meshgrid(
+                        np.arange(self.num_brick_layers),
+                        np.arange(self.num_bricks_per_layer),
+                        indexing="ij",
+                    )
+
+                    # Vectorized computation of brick positions and states
+                    bricks_vectors = np.zeros(
+                        (self.num_brick_layers, self.num_bricks_per_layer, 6)
+                    )
+                    # Only include bricks that are active
+                    bricks_vectors[bricks, 0] = (
+                        k_indices[bricks] * self.brick_x_length / frame.shape[1] * 2 - 1
+                    )  # x positions
+                    bricks_vectors[bricks, 1] = (
+                        j_indices[bricks] * self.brick_y_length / frame.shape[0] * 2 - 1
+                    )  # y positions
+                    bricks_vectors[bricks, 4] = self.brick_x_length / self.area_scale
+                    bricks_vectors[bricks, 5] = self.brick_y_length / self.area_scale
 
                     # Concatenate player, ball, and bricks vectors
                     features = np.concatenate(
