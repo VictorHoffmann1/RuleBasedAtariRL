@@ -10,3 +10,4 @@ pyyaml
 moviepy
 imageio[ffmpeg]
 optuna
+torch_geometric

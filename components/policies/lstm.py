@@ -20,10 +20,10 @@ class LSTM(nn.Module):
 class LSTMFeaturesExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space, n_features, hidden_dim):
         super().__init__(observation_space, features_dim=hidden_dim)
-        self.deepsets_encoder = LSTM(n_features, hidden_dim)
+        self.lstm_encoder = LSTM(n_features, hidden_dim)
 
     def forward(self, observations):
-        return self.deepsets_encoder(observations)
+        return self.lstm_encoder(observations)
 
 
 class CustomLSTMPolicy(ActorCriticPolicy):

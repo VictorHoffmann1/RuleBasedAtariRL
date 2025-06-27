@@ -4,6 +4,7 @@ from components.encoders.object_discovery_encoder import ObjectDiscoveryEncoder
 from components.policies.transformer import CustomTransformerPolicy
 from components.policies.deep_sets import CustomDeepSetPolicy
 from components.policies.lstm import CustomLSTMPolicy
+from components.policies.gnn import CustomGNNPolicy
 
 
 def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extension=""):
@@ -130,6 +131,20 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             "n_features": 8,
             "name": model_name + "_rb_player_ball_bricks_lstm" + model_extension,
             "policy": CustomLSTMPolicy,
+            "use_feature_kwargs": True,
+            "n_stack": None,
+            "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
+        }
+    elif key == "player+ball+bricks+gnn":
+        agent_mapping = {
+            "encoder": rb_encoder[game_name](
+                encoding_method="bricks+paddle+ball+discovery",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+            ),
+            "n_features": 8,
+            "name": model_name + "_rb_player_ball_bricks_gnn" + model_extension,
+            "policy": CustomGNNPolicy,
             "use_feature_kwargs": True,
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
