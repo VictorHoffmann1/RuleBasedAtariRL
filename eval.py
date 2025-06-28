@@ -98,8 +98,6 @@ def eval(
 
         total_reward = 0
         step_count = 0
-        # --- Track per-life stats ---
-        per_life_reward = 0
         per_life_step = 0
         # Get initial lives from info dict after first step
         obs, reward, done, info = env.step([1])  # Force Fire action
@@ -110,36 +108,26 @@ def eval(
         # Safety mechanisms to prevent infinite loops
         max_steps = 10000  # Maximum steps per episode
         max_steps_per_life = 2000  # Maximum steps per life
-        steps_since_life_change = 0
 
         while not done[0] and step_count < max_steps:
             actions, _ = model.predict(obs, deterministic=deterministic)
             obs, reward, done, info = env.step(actions)
             step_count += 1
-            steps_since_life_change += 1
             total_reward += reward[0]
-            per_life_reward += reward[0]
             per_life_step += 1
 
-            if isinstance(info, list):
-                info = info[0]
-            new_lives = info.get("lives", lives)
+            new_lives = info[0].get("lives", lives)
 
             # Check for life change
             if new_lives < lives:
-                if verbose and steps_since_life_change > 2000:
-                    print(
-                        f"  Life lost after {steps_since_life_change} steps (life {lives} -> {new_lives})"
-                    )
-                obs, _, _, info = env.step([1])  # Force Fire action
-                per_life_reward = 0
+                if args.agent != "cnn":  # Raises FrameStack error for CNN agent
+                    obs, _, _, info = env.step([1])  # Force Fire action
                 per_life_step = 0
-                steps_since_life_change = 0
-            elif steps_since_life_change > max_steps_per_life:
+            elif per_life_step > max_steps_per_life:
                 # Safety: Force end if stuck on same life too long
                 if verbose:
                     print(
-                        f"  Warning: Forced termination after {steps_since_life_change} steps on life {lives}"
+                        f"  Warning: Forced termination after {per_life_step} steps on life {lives}"
                     )
                 break
             lives = new_lives

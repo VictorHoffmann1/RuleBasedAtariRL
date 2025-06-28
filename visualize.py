@@ -86,6 +86,11 @@ def test(args):
         else:
             raise ValueError(f"Model {model_name} not implemented.")
 
+    # Make sure the seed is properly set
+    env.seed(seed)
+    load_env.seed(seed)
+    model.set_random_seed(seed)
+
     obs = env.reset()
     done = [False]
 
@@ -102,78 +107,132 @@ def test(args):
     print("Starting test...")
     total_reward = 0
     step_count = 0
-    lives = 5
+    per_life_step = 0
+    # Get initial lives from info dict after first step
+    obs, reward, done, info = env.step([1])  # Force Fire action
+    if isinstance(info, list):
+        info = info[0]
+    lives = info.get("lives", None)
+
+    # Safety mechanisms to prevent infinite loops
+    max_steps = 10000  # Maximum steps per episode
+    max_steps_per_life = 2000  # Maximum steps per life
+
     while not done[0]:
+        # Visualize frame
         features = obs if encoder is None else encoder(obs)
+
+        vis_frame = visualize_model(
+            obs,
+            features,
+            encoder,
+            args.agent,
+            agent_mapping,
+            x_offset=x_offset,
+            y_offset=y_offset,
+            upscale_factor=upscale_factor,
+            frame_height=frame_height,
+            frame_width=frame_width,
+        )
+
+        out.write(vis_frame)
+
         actions, _ = model.predict(features, deterministic=args.deterministic)
         action = actions[0]
-
-        # --- Visualization ---
-        vis_frame = obs[0].copy()
-        if args.agent in ["player+ball", "player+ball+bricks", "naive"]:
-            h, w = vis_frame.shape[:2]
-            # Extract encoder features for visualization
-            player_x = features[0][0]  # normalized [-1, 1]
-            ball_x = features[0][1]  # normalized [-1, 1]
-            ball_y = features[0][2]  # normalized [-1, 1]
-
-            # Convert normalized positions to pixel coordinates
-            px = int((player_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
-            bx = int((ball_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
-            by = int((ball_y + 1) / 2 * (h - y_offset)) + y_offset
-
-            # Draw player position (blue circle)
-            cv2.circle(vis_frame, (px, 189), 1, (255, 0, 0), -1)
-            # Draw ball position (red circle)
-            cv2.circle(vis_frame, (bx, by), 1, (0, 0, 255), -1)
-
-            if "bricks" in args.agent:
-                # Bricks: shape (num_brick_layers, num_bricks_per_layer)
-                bricks_flat = features[0][5:]
-                bricks = bricks_flat.reshape(
-                    encoder.num_brick_layers, encoder.num_bricks_per_layer
-                )
-
-                # Draw bricks (green rectangles)
-                brick_y0 = encoder.bricks_y_start
-                brick_h = encoder.brick_y_length
-                brick_w = encoder.brick_x_length
-                for i in range(encoder.num_brick_layers):
-                    for j in range(encoder.num_bricks_per_layer):
-                        if bricks[i, j]:
-                            x0 = j * brick_w + x_offset
-                            y0 = brick_y0 + i * brick_h + y_offset
-                            x1 = x0 + brick_w
-                            y1 = y0 + brick_h
-                            cv2.rectangle(vis_frame, (x0, y0), (x1, y1), (0, 255, 0), 1)
-
-        if agent_mapping["n_stack"] is not None:
-            vis_frame = vis_frame[:, :, 0]  # Convert to grayscale if stacked
-
-        # Upscale for visibility
-        vis_frame = cv2.resize(
-            vis_frame,
-            (frame_width * upscale_factor, frame_height * upscale_factor),
-            interpolation=cv2.INTER_NEAREST,
-        )
-        out.write(vis_frame)
-        # --- End visualization ---
         obs, reward, done, info = env.step(actions)
         step_count += 1
         total_reward += reward[0]
+        per_life_step += 1
+
         new_lives = info[0].get("lives", lives)
         if new_lives < lives:
             obs, _, _, info = env.step([1])  # Force Fire action
+            per_life_step = 0
+        elif per_life_step > max_steps_per_life:
+            # Safety: Force end if stuck on same life too long
+            print(
+                f"  Warning: Forced termination after {per_life_step} steps on life {lives}"
+            )
+            break
         print(
             f"Step: {step_count}, Action: {action}, Reward: {reward[0]}, Done: {done[0]}"
         )
-        if step_count > 5000:
-            print("Maximum step count reached, stopping test.")
-            break
+        lives = new_lives
     print(f"Test finished! Total reward: {total_reward}. Steps: {step_count}")
     env.close()
     out.release()
     print(f"Encoder debug video saved to {debug_video_path}")
+
+
+def visualize_model(
+    obs,
+    features,
+    encoder,
+    agent,
+    agent_mapping,
+    x_offset=8,
+    y_offset=31,
+    upscale_factor=4,
+    frame_height=210,
+    frame_width=160,
+):
+    """
+    Visualize the model's encoder features on the observation frame.
+    Args:
+        obs: Current observation from the environment.
+        features: Encoder features to visualize.
+        encoder: The encoder used to extract features.
+    """
+    # --- Visualization ---
+    vis_frame = obs[0].copy()
+    if agent in ["player+ball", "player+ball+bricks", "naive"]:
+        h, w = vis_frame.shape[:2]
+        # Extract encoder features for visualization
+        player_x = features[0][0]  # normalized [-1, 1]
+        ball_x = features[0][1]  # normalized [-1, 1]
+        ball_y = features[0][2]  # normalized [-1, 1]
+
+        # Convert normalized positions to pixel coordinates
+        px = int((player_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
+        bx = int((ball_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
+        by = int((ball_y + 1) / 2 * (h - y_offset)) + y_offset
+
+        # Draw player position (blue circle)
+        cv2.circle(vis_frame, (px, 189), 1, (255, 0, 0), -1)
+        # Draw ball position (red circle)
+        cv2.circle(vis_frame, (bx, by), 1, (0, 0, 255), -1)
+
+        if "bricks" in agent:
+            # Bricks: shape (num_brick_layers, num_bricks_per_layer)
+            bricks_flat = features[0][5:]
+            bricks = bricks_flat.reshape(
+                encoder.num_brick_layers, encoder.num_bricks_per_layer
+            )
+
+            # Draw bricks (green rectangles)
+            brick_y0 = encoder.bricks_y_start
+            brick_h = encoder.brick_y_length
+            brick_w = encoder.brick_x_length
+            for i in range(encoder.num_brick_layers):
+                for j in range(encoder.num_bricks_per_layer):
+                    if bricks[i, j]:
+                        x0 = j * brick_w + x_offset
+                        y0 = brick_y0 + i * brick_h + y_offset
+                        x1 = x0 + brick_w
+                        y1 = y0 + brick_h
+                        cv2.rectangle(vis_frame, (x0, y0), (x1, y1), (0, 255, 0), 1)
+
+    if agent_mapping["n_stack"] is not None:
+        vis_frame = vis_frame[:, :, 0]  # Convert to grayscale if stacked
+
+    # Upscale for visibility
+    vis_frame = cv2.resize(
+        vis_frame,
+        (frame_width * upscale_factor, frame_height * upscale_factor),
+        interpolation=cv2.INTER_NEAREST,
+    )
+
+    return vis_frame
 
 
 if __name__ == "__main__":

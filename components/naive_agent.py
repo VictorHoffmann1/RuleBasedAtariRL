@@ -6,6 +6,13 @@ class NaiveAgent:
         self.player_offset = 0.1
         self.no_op_threshold = 0.07
 
+    def set_random_seed(self, seed: int):
+        """
+        Set random seed for reproducibility.
+        For naive agent, this is a no-op since it's deterministic.
+        """
+        pass
+
     def predict(self, features, deterministic: bool = True):
         """
         Perform an action based on the observation.
