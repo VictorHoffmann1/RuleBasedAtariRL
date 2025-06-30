@@ -77,9 +77,8 @@ def train(args):
             else {},
             learning_rate=linear_scheduler(
                 model_params["learning_rate"],
-                0.0,
-                # model_params["learning_rate"]
-                # * (1 - config["training"]["num_steps"] / 1e7),
+                model_params["learning_rate"]
+                * (1 - config["training"]["num_steps"] / 1e7),
             )
             if model_params["scheduler"]
             else model_params["learning_rate"],
@@ -92,9 +91,8 @@ def train(args):
             vf_coef=model_params["vf_coef"],
             clip_range=linear_scheduler(
                 model_params["clip_range"],
-                0,
-                # model_params["clip_range"]
-                # * (1 - config["training"]["num_steps"] / 1e7),
+                model_params["clip_range"]
+                * (1 - config["training"]["num_steps"] / 1e7),
             )
             if model_params["scheduler"]
             else model_params["clip_range"],

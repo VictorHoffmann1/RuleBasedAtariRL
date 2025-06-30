@@ -118,6 +118,16 @@ class BreakoutEncoder:
                     ]
                 )
 
+            elif self.method == "paddle-ball": # Egocentric method
+                features = np.array(
+                    [
+                        self.ball_x[i] - player_x,
+                        self.ball_y[i] - self.player_y,
+                        self.ball_dx[i] * self.speed_scale,
+                        self.ball_dy[i] * self.speed_scale,
+                    ]
+                )
+
             # Brick detection
             elif "bricks" in self.method:
                 # Extract the bricks zone from the frame

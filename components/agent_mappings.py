@@ -41,6 +41,20 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
+    if key == "player-ball":
+        agent_mapping = {
+            "encoder": rb_encoder[game_name](
+                encoding_method="paddle-ball",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+            ),
+            "n_features": 4,
+            "name": model_name + "_rb_player_ball_egocentric" + model_extension,
+            "policy": "MlpPolicy",
+            "use_feature_kwargs": False,
+            "n_stack": None,
+            "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
+        }
     elif key == "player+ball+bricks":
         agent_mapping = {
             "encoder": rb_encoder[game_name](
@@ -158,7 +172,7 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             ),
             "n_features": 6,
             "name": model_name + "_rb_player_ball_bricks_discovery" + model_extension,
-            "policy": CustomDeepSetPolicy,
+            "policy": CustomDeepSetPolicy, # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
