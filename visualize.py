@@ -2,7 +2,7 @@ import os
 from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
-from components.naive_agent import NaiveAgent
+from components.policies.naive_agent import NaiveAgent
 from components.agent_mappings import get_agent_mapping
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
 import yaml
@@ -11,6 +11,10 @@ import argparse
 
 
 def test(args):
+    raise NotImplementedError(
+        "Visualization not implemented yet for OCAtari environments."
+    )
+
     # Load configuration
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
@@ -86,12 +90,8 @@ def test(args):
         else:
             raise ValueError(f"Model {model_name} not implemented.")
 
-    # Make sure the seed is properly set
-    env.seed(seed)
-    load_env.seed(seed)
     model.set_random_seed(seed)
-
-    obs = env.reset()
+    obs = env.reset(seed=seed)
     done = [False]
 
     # Prepare video writer for encoder visualization
@@ -115,7 +115,6 @@ def test(args):
     lives = info.get("lives", None)
 
     # Safety mechanisms to prevent infinite loops
-    max_steps = 10000  # Maximum steps per episode
     max_steps_per_life = 2000  # Maximum steps per life
 
     while not done[0]:
@@ -240,7 +239,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--agent",
         type=str,
-        default="player+ball",
         required=True,
         help="The agent type to test.",
     )

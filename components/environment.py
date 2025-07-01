@@ -1,10 +1,10 @@
-import gym
-from components.wrappers import AtariWrapper
+import gymnasium as gym
 import os
 from typing import Any, Callable, Optional, Union, Type, Dict
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv
-from components.helper import _patch_env
+from components.wrappers import AtariWrapper
+from ocatari.core import OCAtari
 
 
 def unwrap_wrapper(
@@ -36,7 +36,7 @@ def is_wrapped(env: gym.Env, wrapper_class: Type[gym.Wrapper]) -> bool:
     return unwrap_wrapper(env, wrapper_class) is not None
 
 
-def make_vec_env(
+def make_ocatari_vec_env(
     env_id: Union[str, Callable[..., gym.Env]],
     n_envs: int = 1,
     seed: Optional[int] = None,
@@ -82,22 +82,11 @@ def make_vec_env(
     def make_env(rank: int) -> Callable[[], gym.Env]:
         def _init() -> gym.Env:
             # For type checker:
+            assert env_kwargs is not None
             assert monitor_kwargs is not None
             assert wrapper_kwargs is not None
-            assert env_kwargs is not None
 
-            if isinstance(env_id, str):
-                # if the render mode was not specified, we set it to `rgb_array` as default.
-                kwargs = {"render_mode": "rgb_array"}
-                kwargs.update(env_kwargs)
-                try:
-                    env = gym.make(env_id, **kwargs)  # type: ignore[arg-type]
-                except TypeError:
-                    env = gym.make(env_id, **env_kwargs)
-            else:
-                env = env_id(**env_kwargs)
-                # Patch to support gym 0.21/0.26 and gymnasium
-                env = _patch_env(env)
+            env = OCAtari(env_id, **env_kwargs)  # I can use env.objects here
 
             if seed is not None:
                 # Note: here we only seed the action space
@@ -116,7 +105,9 @@ def make_vec_env(
             env = Monitor(env, filename=monitor_path, **monitor_kwargs)
             # Optionally, wrap the environment with the provided wrapper
             if wrapper_class is not None:
-                env = wrapper_class(env, **wrapper_kwargs)
+                env = wrapper_class(
+                    env, **wrapper_kwargs
+                )  # Now you can use get_ocatari_objects(env) here
             return env
 
         return _init
@@ -129,12 +120,12 @@ def make_vec_env(
     vec_env = vec_env_cls(
         [make_env(i + start_index) for i in range(n_envs)], **vec_env_kwargs
     )
-    # Prepare the seeds for the first reset
-    vec_env.seed(seed)
+    # Note: Seeding is handled in the individual environments during reset
+    # vec_env.seed(seed) is deprecated in newer Gym versions
     return vec_env
 
 
-def make_atari_env(
+def make_oc_atari_env(
     env_id: Union[str, Callable[..., gym.Env]],
     n_envs: int = 1,
     seed: Optional[int] = None,
@@ -145,34 +136,30 @@ def make_atari_env(
     vec_env_cls: Optional[Union[Type[DummyVecEnv], Type[SubprocVecEnv]]] = None,
     vec_env_kwargs: Optional[Dict[str, Any]] = None,
     monitor_kwargs: Optional[Dict[str, Any]] = None,
-) -> VecEnv:
+) -> OCAtari:
     """
-    Create a wrapped, monitored VecEnv for Atari.
-    It is a wrapper around ``make_vec_env`` that includes common preprocessing for Atari games.
+    Create a wrapped, monitored OCAtari environment.
 
-    :param env_id: either the env ID, the env class or a callable returning an env
+    :param env_id: either the env ID or a callable returning an OCAtari env
     :param n_envs: the number of environments you wish to have in parallel
     :param seed: the initial seed for the random number generator
     :param start_index: start rank index
     :param monitor_dir: Path to a folder where the monitor files will be saved.
         If None, no file will be written, however, the env will still be wrapped
         in a Monitor wrapper to provide additional information about training.
-    :param wrapper_kwargs: Optional keyword argument to pass to the ``AtariWrapper``
+    :param wrapper_kwargs: Optional keyword argument to pass to the ``OCAtari`` wrapper
     :param env_kwargs: Optional keyword argument to pass to the env constructor
-    :param vec_env_cls: A custom ``VecEnv`` class constructor. Default: None.
-    :param vec_env_kwargs: Keyword arguments to pass to the ``VecEnv`` class constructor.
-    :param monitor_kwargs: Keyword arguments to pass to the ``Monitor`` class constructor.
-    :return: The wrapped environment
+    :return: The wrapped OCAtari environment
     """
-    return make_vec_env(
+    return make_ocatari_vec_env(
         env_id,
         n_envs=n_envs,
         seed=seed,
         start_index=start_index,
         monitor_dir=monitor_dir,
-        wrapper_class=AtariWrapper,
         env_kwargs=env_kwargs,
         vec_env_cls=vec_env_cls,
+        wrapper_class=AtariWrapper,
         vec_env_kwargs=vec_env_kwargs,
         monitor_kwargs=monitor_kwargs,
         wrapper_kwargs=wrapper_kwargs,

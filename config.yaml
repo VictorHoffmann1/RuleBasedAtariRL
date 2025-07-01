@@ -1,6 +1,6 @@
 environment:
   number: &num_envs 8 # Number of parallel environments
-  game_name: "BreakoutNoFrameskip-v4" # Environment name
+  game_name: "ALE/Breakout-v5" # Environment name
   seed: 42
 
 encoder:
@@ -12,7 +12,7 @@ model:
   name: "PPO" # Model name (PPO or A2C)
 
   # Global parameters
-  learning_rate: 0.0005 # Ignored if linear_scheduler is true
+  learning_rate: 0.0007 # Ignored if linear_scheduler is true
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 

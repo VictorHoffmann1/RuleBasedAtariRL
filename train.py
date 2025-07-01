@@ -1,9 +1,10 @@
 from stable_baselines3 import A2C, PPO
-from components.environment import make_atari_env
-from components.wrappers import EncoderWrapper
+from components.environment import make_oc_atari_env
+from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
-from components.schedulers import linear_scheduler
+from components.schedulers import linear_scheduler, exponential_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
+from stable_baselines3.common.env_util import make_atari_env
 import yaml
 import os
 import argparse
@@ -20,23 +21,33 @@ def train(args):
     model_name = config["model"]["name"]
 
     # Get agent mappings configuration
-    agent_mapping = get_agent_mapping(args.agent, config, n_envs, game_name, model_name)
+    agent_mapping = get_agent_mapping(args.agent, game_name, model_name)
 
-    env = make_atari_env(
-        game_name,
-        n_envs=n_envs,
-        seed=seed,
-        wrapper_kwargs=agent_mapping["wrapper_kwargs"],
-    )
-
-    if agent_mapping["n_stack"] is not None:
+    if args.agent == "cnn":
+        env = make_atari_env(
+            game_name,
+            n_envs=n_envs,
+            seed=seed,
+        )
         # Stack frames to encode temporal information
         env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
-    if agent_mapping["encoder"] is not None:
-        env = EncoderWrapper(
+    else:
+        oc_atari_kwargs = {
+            "mode": "vision",
+            "hud": False,
+        }
+        env = make_oc_atari_env(
+            game_name,
+            n_envs=n_envs,
+            seed=seed,
+            env_kwargs=oc_atari_kwargs,
+        )
+    if agent_mapping["encoder"]:
+        env = OCAtariEncoderWrapper(
             env,
-            agent_mapping["encoder"],
-            agent_mapping["n_features"],
+            config["encoder"]["max_objects"],
+            num_envs=n_envs,
+            speed_scale=config["encoder"]["speed_scale"],
         )
 
     # Set up TensorBoard log directory
@@ -72,12 +83,9 @@ def train(args):
             agent_mapping["policy"],
             env,
             verbose=2,
-            policy_kwargs={"n_features": agent_mapping["n_features"]}
-            if agent_mapping["use_feature_kwargs"]
-            else {},
-            learning_rate=linear_scheduler(
+            learning_rate=exponential_scheduler(
                 model_params["learning_rate"],
-                0.0,
+                1e-5,
                 # model_params["learning_rate"]
                 # * (1 - config["training"]["num_steps"] / 1e7),
             )
@@ -118,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--agent",
         type=str,
-        default="player+ball",
+        default="deepsets",
         required=True,
         help="The agent type to test.",
     )

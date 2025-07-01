@@ -1,9 +1,10 @@
 from stable_baselines3 import A2C, PPO
-from components.environment import make_atari_env
-from components.wrappers import EncoderWrapper
-from components.naive_agent import NaiveAgent
+from components.environment import make_oc_atari_env
+from components.wrappers import OCAtariEncoderWrapper
+from components.policies.naive_agent import NaiveAgent
 from components.agent_mappings import get_agent_mapping
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
+from stable_baselines3.common.env_util import make_atari_env
 
 import yaml
 import os
@@ -29,34 +30,35 @@ def eval(
     model_name = config["model"]["name"]
     model_path = "./weights"
 
-    agent_mapping = get_agent_mapping(
-        agent,
-        config,
-        n_envs=1,  # Single environment for evaluation
-        game_name=game_name,
-        model_name=model_name,
-        model_extension=model_extension,
-    )
+    agent_mapping = get_agent_mapping(args.agent, game_name, model_name)
+    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
 
-    agent_mapping["wrapper_kwargs"]["clip_reward"] = False
-    agent_mapping["wrapper_kwargs"]["terminal_on_life_loss"] = False
-
-    env = make_atari_env(
-        game_name,
-        n_envs=1,
-        seed=0,
-        wrapper_kwargs=agent_mapping["wrapper_kwargs"],
-    )
     if agent == "cnn":
+        env = make_atari_env(
+            game_name,
+            n_envs=1,  # Single environment for evaluation
+            seed=0,  # Fixed seed for reproducibility
+            wrapper_kwargs=wrapper_kwargs,
+        )
         env = VecTransposeImage(env)
-    if agent_mapping["n_stack"] is not None:
-        # Stack frames to encode temporal information
-        env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
-    if agent_mapping["encoder"] is not None:
-        env = EncoderWrapper(
+        env = VecFrameStack(env, n_stack=4)
+    else:
+        oc_atari_kwargs = {
+            "mode": "vision",
+            "hud": False,
+        }
+        env = make_oc_atari_env(
+            game_name,
+            n_envs=1,
+            seed=0,
+            env_kwargs=oc_atari_kwargs,
+        )
+    if agent_mapping["encoder"]:
+        env = OCAtariEncoderWrapper(
             env,
-            agent_mapping["encoder"],
-            agent_mapping["n_features"],
+            config["encoder"]["max_objects"],
+            num_envs=1,
+            speed_scale=config["encoder"]["speed_scale"],
         )
 
     if model is None:
@@ -90,10 +92,9 @@ def eval(
     seeds = list(range(args.n_seeds))  # Use a range of seeds for evaluation
     total_rewards = []
     for seed in seeds:
-        env.seed(seed)
         model.set_random_seed(seed)
 
-        obs = env.reset()
+        obs = env.reset(seed=seed)
         done = [False]
 
         total_reward = 0

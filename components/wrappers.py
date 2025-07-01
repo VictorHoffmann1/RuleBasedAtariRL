@@ -1,9 +1,9 @@
 from typing import Any, SupportsFloat, Tuple, Dict
 from stable_baselines3.common.vec_env import VecEnvWrapper
-
-import gym
+from components.encoders.ocatari_encoder import OCAtariEncoder
 import numpy as np
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 
 try:
     import cv2
@@ -16,7 +16,7 @@ AtariResetReturn = Tuple[np.ndarray, Dict[str, Any]]
 AtariStepReturn = Tuple[np.ndarray, SupportsFloat, bool, bool, Dict[str, Any]]
 
 
-class EncoderWrapper(VecEnvWrapper):
+class OCAtariEncoderWrapper(VecEnvWrapper):
     """
     Wrapper to encode the observations using a rule-based encoder.
     :param venv: Environment to wrap
@@ -24,28 +24,34 @@ class EncoderWrapper(VecEnvWrapper):
     :param n_features: Number of features in the encoded observation
     """
 
-    # TODO: Add support for custom transfomer encoder
-    def __init__(self, venv, encoder, n_features):
+    def __init__(self, venv, max_objects, num_envs, speed_scale=10.0):
         super().__init__(venv)
-        self.encoder = encoder
-        if (
-            "discovery" in self.encoder.method
-            or "object_vectors" in self.encoder.method
-        ):
-            shape = (self.encoder.max_objects, n_features)
-        else:
-            shape = (n_features,)
+        self.encoder = OCAtariEncoder(
+            max_objects=max_objects,
+            speed_scale=speed_scale,
+            num_envs=num_envs,
+        )
+        shape = (max_objects, 6)  # Each object has 6 features: x, y, dx, dy, w, h
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=shape, dtype=np.float32
         )
 
     def reset(self):
-        obs = self.venv.reset()
-        return self.encoder(obs)
+        _ = self.venv.reset()
+        return self.encoder(self.venv)
 
     def step_wait(self):
-        obs, rewards, terminated, infos = self.venv.step_wait()
-        encoded_obs = self.encoder(obs)
+        _, rewards, terminated, infos = self.venv.step_wait()
+        encoded_obs = self.encoder(self.venv)
+
+        # Process terminal observations in infos to match the encoded observation space
+        for i, info in enumerate(infos):
+            if "terminal_observation" in info:
+                # The terminal observation should also be encoded to match our observation space
+                # Since we can't encode a single terminal observation without the environment state,
+                # we'll use the current encoded observation as a reasonable approximation
+                info["terminal_observation"] = encoded_obs[i]
+
         return encoded_obs, rewards, terminated, infos
 
 
@@ -92,23 +98,17 @@ class NoopResetEnv(gym.Wrapper):
         assert env.unwrapped.get_action_meanings()[0] == "NOOP"  # type: ignore[attr-defined]
 
     def reset(self, **kwargs) -> AtariResetReturn:
-        self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
         if self.override_num_noops is not None:
             noops = self.override_num_noops
         else:
             noops = self.unwrapped.np_random.integers(1, self.noop_max + 1)
         assert noops > 0
-        obs = np.zeros(0)
-        info: dict = {}
+        # obs and info are already set from the reset call above
         for _ in range(noops):
             step_result = self.env.step(self.noop_action)
-            # Handle different gym versions
-            if len(step_result) == 5:
-                obs, _, terminated, truncated, info = step_result
-                done = terminated or truncated
-            else:
-                obs, _, done, info = step_result
-            if done:
+            obs, _, terminated, truncated, info = step_result
+            if terminated or truncated:
                 obs, info = self.env.reset(**kwargs)
         return obs, info
 
@@ -126,26 +126,20 @@ class FireResetEnv(gym.Wrapper):
         assert len(env.unwrapped.get_action_meanings()) >= 3  # type: ignore[attr-defined]
 
     def reset(self, **kwargs) -> AtariResetReturn:
-        self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
         # Step 1
         step_result = self.env.step(1)
-        if len(step_result) == 5:
-            obs, _, terminated, truncated, _ = step_result
-            done = terminated or truncated
-        else:
-            obs, _, done, _ = step_result
+        obs, _, terminated, truncated, info = step_result
+        done = terminated or truncated
         if done:
-            obs, _ = self.env.reset(**kwargs)
+            obs, info = self.env.reset(**kwargs)
         # Step 2
         step_result = self.env.step(2)
-        if len(step_result) == 5:
-            obs, _, terminated, truncated, _ = step_result
-            done = terminated or truncated
-        else:
-            obs, _, done, _ = step_result
+        obs, _, terminated, truncated, info = step_result
+        done = terminated or truncated
         if done:
-            obs, _ = self.env.reset(**kwargs)
-        return obs, {}
+            obs, info = self.env.reset(**kwargs)
+        return obs, info
 
 
 class EpisodicLifeEnv(gym.Wrapper):
@@ -163,14 +157,9 @@ class EpisodicLifeEnv(gym.Wrapper):
 
     def step(self, action: int) -> AtariStepReturn:
         step_result = self.env.step(action)
-        if len(step_result) == 5:
-            obs, reward, terminated, truncated, info = step_result
-        else:
-            obs, reward, done, info = step_result
-            terminated = done
-            truncated = False
+        obs, reward, terminated, truncated, info = step_result
         self.was_real_done = terminated or truncated
-        lives = self.env.unwrapped.ale.lives()  # type: ignore[attr-defined]
+        lives = info["lives"]
         if 0 < lives < self.lives:
             terminated = True
         self.lives = lives
@@ -181,75 +170,12 @@ class EpisodicLifeEnv(gym.Wrapper):
             obs, info = self.env.reset(**kwargs)
         else:
             step_result = self.env.step(0)
-            if len(step_result) == 5:
-                obs, _, terminated, truncated, info = step_result
-                done = terminated or truncated
-            else:
-                obs, _, done, info = step_result
+            obs, _, terminated, truncated, info = step_result
+            done = terminated or truncated
             if done:
                 obs, info = self.env.reset(**kwargs)
-        self.lives = self.env.unwrapped.ale.lives()  # type: ignore[attr-defined]
+        self.lives = info["lives"]  # type: ignore[attr-defined]
         return obs, info
-
-
-class MaxAndSkipEnv(gym.Wrapper):
-    """
-    Return only every ``skip``-th frame (frameskipping)
-    and optionally return the max between the two last frames.
-
-    :param env: Environment to wrap
-    :param skip: Number of ``skip``-th frame
-        The same action will be taken ``skip`` times.
-    :param max_pool: If True, return the max over the last two frames. If False, return the last frame only.
-    """
-
-    def __init__(self, env: gym.Env, skip: int = 4, max_pool: bool = True) -> None:
-        super().__init__(env)
-        # most recent raw observations (for max pooling across time steps)
-        assert env.observation_space.dtype is not None, (
-            "No dtype specified for the observation space"
-        )
-        assert env.observation_space.shape is not None, (
-            "No shape defined for the observation space"
-        )
-        self._obs_buffer = np.zeros(
-            (2, *env.observation_space.shape), dtype=env.observation_space.dtype
-        )
-        self._skip = skip
-        self._max_pool = max_pool
-
-    def step(self, action: int) -> AtariStepReturn:
-        """
-        Step the environment with the given action
-        Repeat action, sum reward, and max over last observations (if enabled).
-
-        :param action: the action
-        :return: observation, reward, terminated, truncated, information
-        """
-        total_reward = 0.0
-        terminated = truncated = False
-        info = {}
-        for i in range(self._skip):
-            step_result = self.env.step(action)
-            if len(step_result) == 5:
-                obs, reward, terminated, truncated, info = step_result
-                done = terminated or truncated
-            else:
-                obs, reward, done, info = step_result
-                terminated = done
-                truncated = False
-            if i == self._skip - 2:
-                self._obs_buffer[0] = obs
-            if i == self._skip - 1:
-                self._obs_buffer[1] = obs
-            total_reward += float(reward)
-            if done:
-                break
-        if self._max_pool:
-            max_frame = self._obs_buffer.max(axis=0)
-            return max_frame, total_reward, terminated, truncated, info
-        else:
-            return self._obs_buffer[1], total_reward, terminated, truncated, info
 
 
 class ClipRewardEnv(gym.RewardWrapper):
@@ -270,57 +196,6 @@ class ClipRewardEnv(gym.RewardWrapper):
         :return:
         """
         return np.sign(float(reward))
-
-
-class WarpFrame(gym.ObservationWrapper):
-    """
-    Convert to grayscale and warp frames to 84x84 (default)
-    as done in the Nature paper and later work.
-
-    :param env: Environment to wrap
-    :param width: New frame width
-    :param height: New frame height
-    """
-
-    def __init__(
-        self, env: gym.Env, width: int = 84, height: int = 84, greyscale: bool = True
-    ) -> None:
-        super().__init__(env)
-        self.width = width
-        self.height = height
-        self.greyscale = greyscale
-        rgb_channel = 1 if self.greyscale else 3
-
-        assert isinstance(env.observation_space, spaces.Box), (
-            f"Expected Box space, got {env.observation_space}"
-        )
-        self.observation_space = spaces.Box(
-            low=0,
-            high=255,
-            shape=(self.height, self.width, rgb_channel),
-            dtype=env.observation_space.dtype,  # type: ignore[arg-type]
-        )
-
-    def observation(self, frame) -> np.ndarray:
-        """
-        returns the current observation from a frame
-
-        :param frame: environment frame
-        :return: the observation
-        """
-        if type(frame) == tuple:
-            # Handle the case where the environment returns obs, info
-            frame = frame[0]
-        assert cv2 is not None, (
-            "OpenCV is not installed, you can do `pip install opencv-python`"
-        )
-        if self.greyscale:
-            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        if self.width != frame.shape[1] or self.height != frame.shape[0]:
-            frame = cv2.resize(
-                frame, (self.width, self.height), interpolation=cv2.INTER_AREA
-            )
-        return frame[:, :, None] if self.greyscale else frame
 
 
 class AtariWrapper(gym.Wrapper):
@@ -359,30 +234,18 @@ class AtariWrapper(gym.Wrapper):
         self,
         env: gym.Env,
         noop_max: int = 30,
-        frame_skip: int = 4,
-        max_pool: bool = True,
-        screen_size: int = 84,
         terminal_on_life_loss: bool = True,
         clip_reward: bool = True,
         action_repeat_probability: float = 0.0,
-        greyscale: bool = True,
     ) -> None:
         if action_repeat_probability > 0.0:
             env = StickyActionEnv(env, action_repeat_probability)
         if noop_max > 0:
             env = NoopResetEnv(env, noop_max=noop_max)
-        # frame_skip=1 is the same as no frame-skip (action repeat)
-        if frame_skip > 1:
-            env = MaxAndSkipEnv(env, skip=frame_skip, max_pool=max_pool)
         if terminal_on_life_loss:
             env = EpisodicLifeEnv(env)
         if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]
             env = FireResetEnv(env)
-        if screen_size > 0:
-            width, height = screen_size, screen_size
-        else:  # use original_size
-            height, width = env.observation_space.shape[0:2]
-        env = WarpFrame(env, width=width, height=height, greyscale=greyscale)
         if clip_reward:
             env = ClipRewardEnv(env)
 
