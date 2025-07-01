@@ -2,7 +2,7 @@ from stable_baselines3 import A2C, PPO
 from components.environment import make_atari_env
 from components.wrappers import EncoderWrapper
 from components.agent_mappings import get_agent_mapping
-from components.schedulers import linear_scheduler
+from components.schedulers import linear_scheduler, exponential_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
 import yaml
 import os

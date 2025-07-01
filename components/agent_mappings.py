@@ -172,7 +172,7 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             ),
             "n_features": 6,
             "name": model_name + "_rb_player_ball_bricks_discovery" + model_extension,
-            "policy": CustomDeepSetPolicy, # TODO: Try CustomTransformerPolicy
+            "policy": CustomTransformerPolicy, # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
