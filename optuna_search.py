@@ -120,8 +120,8 @@ def optuna_search(args):
 
         # Evaluate the model
         mean_reward, _ = eval(
-            model,
-            args.agent,
+            model=model,
+            agent=args.agent,
             deterministic=True,
             n_seeds=20,
             verbose=False,

@@ -31,7 +31,7 @@ def eval(
     model_name = config["model"]["name"]
     model_path = "./weights"
 
-    agent_mapping = get_agent_mapping(args.agent, game_name, model_name, model_extension)
+    agent_mapping = get_agent_mapping(agent, game_name, model_name, model_extension)
     wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
 
     if agent == "cnn":
@@ -123,7 +123,7 @@ def eval(
 
             # Check for life change
             if new_lives < lives:
-                if args.agent != "cnn":  # Raises FrameStack error for CNN agent
+                if agent != "cnn":  # Raises FrameStack error for CNN agent
                     obs, _, _, info = env.step([1])  # Force Fire action
                 per_life_step = 0
             elif per_life_step > max_steps_per_life:
