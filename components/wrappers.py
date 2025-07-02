@@ -31,7 +31,7 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
             speed_scale=speed_scale,
             num_envs=num_envs,
         )
-        shape = (max_objects, 6)  # Each object has 6 features: x, y, dx, dy, w, h
+        shape = (max_objects, self.encoder.n_features)  # Each object has 6 features: x, y, dx, dy, w, h
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=shape, dtype=np.float32
         )

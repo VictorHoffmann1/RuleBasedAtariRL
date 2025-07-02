@@ -103,7 +103,7 @@ class CustomDeepSetPolicy(ActorCriticPolicy):
         observation_space,
         action_space,
         lr_schedule,
-        n_features=6,
+        n_features=9,
         hidden_dim=128,
         output_dim=64,
         pooling="max",

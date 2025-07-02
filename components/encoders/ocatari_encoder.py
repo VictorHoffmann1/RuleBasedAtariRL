@@ -20,6 +20,7 @@ class OCAtariEncoder:
         self.speed_scale = speed_scale
         self.img_width = 160  # Width of the Atari screen
         self.img_height = 210  # Height of the Atari screen
+        self.n_features = 9
         self.max_objects = max_objects
 
     def __call__(self, envs) -> np.ndarray:
@@ -35,7 +36,7 @@ class OCAtariEncoder:
         for env in envs.envs:
             objects = self.get_ocatari_objects(env)
             features = np.zeros(
-                (self.max_objects, 6)
+                (self.max_objects, self.n_features)
             )  # Initialize features for each env
             idx = 0
             for object in objects:
@@ -46,6 +47,7 @@ class OCAtariEncoder:
                             UserWarning,
                         )
                         break
+                    rgb_vector = object.rgb
                     object_vector = np.array(
                         [
                             self.normalize(object.x, self.img_width, "[-1,1]"),
@@ -60,6 +62,9 @@ class OCAtariEncoder:
                             ),
                             self.normalize(object.w, self.img_width, "[0,1]"),
                             self.normalize(object.h, self.img_height, "[0,1]"),
+                            self.normalize(rgb_vector[0], 255, "[0,1]"),
+                            self.normalize(rgb_vector[1], 255, "[0,1]"),
+                            self.normalize(rgb_vector[2], 255, "[0,1]"),
                         ]
                     )
                     features[idx] = object_vector
