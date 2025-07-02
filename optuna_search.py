@@ -1,10 +1,11 @@
 from stable_baselines3 import A2C, PPO
-from stable_baselines3.common.vec_env import VecFrameStack
-from stable_baselines3.common.evaluation import evaluate_policy
-from components.environment import make_atari_env
-from components.wrappers import EncoderWrapper
+from components.environment import make_oc_atari_env
+from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
-from components.schedulers import linear_scheduler
+from components.schedulers import linear_scheduler, exponential_scheduler
+from stable_baselines3.common.vec_env import VecFrameStack
+from stable_baselines3.common.env_util import make_atari_env
+from eval import eval
 import yaml
 import os
 import argparse
@@ -21,33 +22,39 @@ def optuna_search(args):
     model_name = config["model"]["name"]
     n_envs = config["environment"]["number"]
 
-    agent_mapping = get_agent_mapping(
-        args.agent,
-        config,
-        n_envs=n_envs,
-        game_name=game_name,
-        model_name=model_name,
-        model_extension="optuna",
-    )
+    # Get agent mappings configuration
+    agent_mapping = get_agent_mapping(args.agent, 
+                                      game_name, 
+                                      model_name, 
+                                      model_extension="optuna")
 
     def objective(trial):
-        env = make_atari_env(
-            game_name,
-            n_envs=n_envs,
-            seed=seed,
-            wrapper_kwargs=agent_mapping["wrapper_kwargs"],
-        )
-
-        if agent_mapping["n_stack"] is not None:
+        if args.agent == "cnn":
+            env = make_atari_env(
+                game_name,
+                n_envs=n_envs,
+                seed=seed,
+            )
             # Stack frames to encode temporal information
             env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
-        if agent_mapping["encoder"] is not None:
-            env = EncoderWrapper(
-                env,
-                agent_mapping["encoder"],
-                agent_mapping["n_features"],
+        else:
+            oc_atari_kwargs = {
+                "mode": "vision",
+                "hud": False,
+            }
+            env = make_oc_atari_env(
+                game_name,
+                n_envs=n_envs,
+                seed=seed,
+                env_kwargs=oc_atari_kwargs,
             )
-
+        if agent_mapping["encoder"]:
+            env = OCAtariEncoderWrapper(
+                env,
+                config["encoder"]["max_objects"],
+                num_envs=n_envs,
+                speed_scale=config["encoder"]["speed_scale"],
+            )
         # Set up TensorBoard log directory
         log_dir = "./logs/"
         if not os.path.exists(log_dir):
@@ -64,6 +71,7 @@ def optuna_search(args):
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-3)
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
         n_epochs = trial.suggest_categorical("n_epochs", [4, 5, 8, 10])
+        gae_lambda = trial.suggest_float("gae_lambda", 0.9, 0.99)
 
         if model_name == "A2C":
             model = A2C(
@@ -94,7 +102,7 @@ def optuna_search(args):
                 n_epochs=n_epochs,
                 n_steps=n_steps,
                 gamma=config["model"]["gamma"],
-                gae_lambda=config["model"]["gae_lambda"],
+                gae_lambda=gae_lambda,
                 ent_coef=ent_coef,
                 vf_coef=config["model"]["vf_coef"],
                 clip_range=linear_scheduler(
@@ -111,12 +119,12 @@ def optuna_search(args):
         )
 
         # Evaluate the model
-        mean_reward, _ = evaluate_policy(
+        mean_reward, _ = eval(
             model,
-            env,
-            n_eval_episodes=10,
+            args.agent,
             deterministic=True,
-            return_episode_rewards=False,
+            n_seeds=20,
+            verbose=False,
         )
 
         return mean_reward

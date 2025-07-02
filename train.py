@@ -85,7 +85,7 @@ def train(args):
             verbose=2,
             learning_rate=exponential_scheduler(
                 model_params["learning_rate"],
-                1e-5,
+                6e-6,
                 # model_params["learning_rate"]
                 # * (1 - config["training"]["num_steps"] / 1e7),
             )

@@ -48,16 +48,18 @@ class OCAtariEncoder:
                         break
                     object_vector = np.array(
                         [
-                            self.normalize(object.x, self.img_width),
-                            self.normalize(object.y, self.img_height),
+                            self.normalize(object.x, self.img_width, "[-1,1]"),
+                            self.normalize(object.y, self.img_height, "[-1,1]"),
                             self.normalize(
-                                object.dx, self.img_width / self.speed_scale
+                                object.dx, self.img_width / self.speed_scale,
+                                 "[-1,1]"
                             ),
                             self.normalize(
-                                object.dy, self.img_height / self.speed_scale
+                                object.dy, self.img_height / self.speed_scale,
+                                 "[-1,1]"
                             ),
-                            self.normalize(object.w, self.img_width),
-                            self.normalize(object.h, self.img_height),
+                            self.normalize(object.w, self.img_width, "[0,1]"),
+                            self.normalize(object.h, self.img_height, "[0,1]"),
                         ]
                     )
                     features[idx] = object_vector
@@ -89,7 +91,7 @@ class OCAtariEncoder:
         raise ValueError("No OCAtari environment found in the wrapper chain")
 
     @staticmethod
-    def normalize(value, scale):
+    def normalize(value, scale, range_type="[0,1]"):
         """
         Normalize a value to the range [-1, 1] based on a scale.
 
@@ -97,4 +99,10 @@ class OCAtariEncoder:
         :param scale: The scale for normalization
         :return: Normalized value in the range [-1, 1]
         """
-        return 2 * (value / scale) - 1 if scale != 0 else 0
+        if range_type == "[0,1]":
+            # Normalize to [0, 1]
+            return value / scale if scale != 0 else 0
+        elif range_type == "[-1,1]":
+            return 2 * (value / scale) - 1 if scale != 0 else 0
+        else:
+            raise ValueError(f"Unsupported range type: {range_type}. Use '[0,1]' or '[-1,1]'.")

@@ -19,6 +19,7 @@ def eval(
     model=None,
     agent: str = "unknown",
     model_extension: str = "eval",
+    n_seeds: int = 10,
     deterministic: bool = True,
     verbose: bool = False,
 ):
@@ -30,7 +31,7 @@ def eval(
     model_name = config["model"]["name"]
     model_path = "./weights"
 
-    agent_mapping = get_agent_mapping(args.agent, game_name, model_name)
+    agent_mapping = get_agent_mapping(args.agent, game_name, model_name, model_extension)
     wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
 
     if agent == "cnn":
@@ -89,12 +90,13 @@ def eval(
             else:
                 raise ValueError(f"Model {model_name} not implemented.")
 
-    seeds = list(range(args.n_seeds))  # Use a range of seeds for evaluation
+    seeds = list(range(n_seeds))  # Use a range of seeds for evaluation
     total_rewards = []
     for seed in seeds:
         model.set_random_seed(seed)
+        env.seed(seed)
+        env.reset()
 
-        obs = env.reset(seed=seed)
         done = [False]
 
         total_reward = 0
@@ -179,6 +181,7 @@ if __name__ == "__main__":
         None,
         agent=args.agent,
         model_extension=args.model,
+        n_seeds=args.n_seeds,
         deterministic=args.deterministic,
         verbose=True,
     )
