@@ -5,6 +5,7 @@ from components.agent_mappings import get_agent_mapping
 from components.schedulers import linear_scheduler, exponential_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.env_util import make_atari_env
+from stable_baselines3.common.callbacks import  EvalCallback, StopTrainingOnNoModelImprovement
 from eval import eval
 import yaml
 import os
@@ -73,11 +74,14 @@ def optuna_search(args):
         n_epochs = trial.suggest_categorical("n_epochs", [4, 5, 8, 10])
         gae_lambda = trial.suggest_float("gae_lambda", 0.9, 0.99)
 
+        stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=3, min_evals=0, verbose=1)
+        eval_callback = EvalCallback(env, eval_freq=max(100000 // n_envs, 1), callback_after_eval=stop_train_callback, verbose=1)
+
         if model_name == "A2C":
             model = A2C(
                 agent_mapping["policy"],
                 env,
-                verbose=2,
+                verbose=0,
                 learning_rate=learning_rate["learning_rate"],
                 n_steps=n_steps,
                 gamma=config["model"]["gamma"],
@@ -93,7 +97,7 @@ def optuna_search(args):
             model = PPO(
                 agent_mapping["policy"],
                 env,
-                verbose=1,
+                verbose=0,
                 learning_rate=linear_scheduler(
                     learning_rate,
                     learning_rate * (1 - config["training"]["num_steps"] / 1e7),
@@ -116,6 +120,7 @@ def optuna_search(args):
         model.learn(
             total_timesteps=config["training"]["num_steps"],
             tb_log_name=agent_mapping["name"],
+            callback=eval_callback,
         )
 
         # Evaluate the model

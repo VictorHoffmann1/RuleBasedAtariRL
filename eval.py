@@ -47,6 +47,7 @@ def eval(
         oc_atari_kwargs = {
             "mode": "vision",
             "hud": False,
+            "obs_mode": "ori",
         }
         env = make_oc_atari_env(
             game_name,

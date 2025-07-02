@@ -52,17 +52,18 @@ class OCAtariEncoder:
                             self.normalize(object.y, self.img_height, "[-1,1]"),
                             self.normalize(
                                 object.dx, self.img_width / self.speed_scale,
-                                 "[-1,1]"
+                                 "[0,1]"
                             ),
                             self.normalize(
                                 object.dy, self.img_height / self.speed_scale,
-                                 "[-1,1]"
+                                 "[0,1]"
                             ),
                             self.normalize(object.w, self.img_width, "[0,1]"),
                             self.normalize(object.h, self.img_height, "[0,1]"),
                         ]
                     )
                     features[idx] = object_vector
+                    idx += 1
 
             batch_features.append(features)
 
