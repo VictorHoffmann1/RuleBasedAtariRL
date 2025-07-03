@@ -12,10 +12,12 @@ class TransformerEncoder(nn.Module):
         self.num_layers = num_layers
 
         self.embedding = nn.Linear(n_features, hidden_dim)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, nhead=num_heads, norm_first=True
+        )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.cls_token = nn.Parameter(
-            torch.zeros(1, 1, n_features)
+            torch.randn(1, 1, hidden_dim)
         )  # Special token used as output representation
 
     def forward(self, x):
