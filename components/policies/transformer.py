@@ -39,33 +39,40 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerFeaturesExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space, n_features, num_heads=4, num_layers=2, hidden_dim=32):
+    def __init__(
+        self, observation_space, n_features, num_heads=4, num_layers=2, hidden_dim=32
+    ):
         super().__init__(observation_space, features_dim=hidden_dim)
-        self.transformer_encoder = TransformerEncoder(n_features, num_heads, num_layers, hidden_dim)
+        self.transformer_encoder = TransformerEncoder(
+            n_features, num_heads, num_layers, hidden_dim
+        )
 
     def forward(self, observations):
         return self.transformer_encoder(observations)
 
 
 class CustomTransformerPolicy(ActorCriticPolicy):
-    def __init__(self, 
-                observation_space,
-                action_space,
-                lr_schedule,
-                n_features=8,
-                hidden_dim=64,
-                num_heads=4,
-                num_layers=2,
-                **kwargs):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        lr_schedule,
+        n_features=8,
+        hidden_dim=64,
+        num_heads=1,
+        num_layers=1,
+        **kwargs,
+    ):
         super().__init__(
             observation_space,
             action_space,
             lr_schedule,
             features_extractor_class=TransformerFeaturesExtractor,
             features_extractor_kwargs=dict(
-                n_features=n_features, 
+                n_features=n_features,
                 num_heads=num_heads,
                 num_layers=num_layers,
-                hidden_dim=hidden_dim,),
+                hidden_dim=hidden_dim,
+            ),
             **kwargs,
         )

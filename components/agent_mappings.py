@@ -69,32 +69,32 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
-    elif key == "transformer":
+    elif key == "deepsets":
         agent_mapping = {
-            "encoder": ObjectDiscoveryEncoder(
+            "encoder": rb_encoder[game_name](
+                encoding_method="bricks+paddle+ball+discovery",
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
-                max_objects=config["encoder"]["max_objects"],
             ),
-            "n_features": 8,
-            "name": model_name + "_rb_transformer",
-            "policy": CustomTransformerPolicy,
+            "n_features": 6,
+            "name": model_name + "_rb_deepsets" + model_extension,
+            "policy": CustomDeepSetPolicy,  # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
-            "n_stack": 2,  # Stack frames for temporal encoding
+            "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
-    elif key == "deep_sets":
+    elif key == "transformer":
         agent_mapping = {
-            "encoder": ObjectDiscoveryEncoder(
+            "encoder": rb_encoder[game_name](
+                encoding_method="bricks+paddle+ball+discovery",
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
-                max_objects=config["encoder"]["max_objects"],
             ),
-            "n_features": 8,
-            "name": model_name + "_rb_deep_sets" + model_extension,
-            "policy": CustomDeepSetPolicy,
+            "n_features": 6,
+            "name": model_name + "_rb_transformers" + model_extension,
+            "policy": CustomTransformerPolicy,  # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
-            "n_stack": 2,  # Stack frames for temporal encoding
+            "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
     elif key == "cnn":
@@ -163,18 +163,32 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
-    elif key == "player+ball+bricks+discovery":
+    elif key == "transformer+discovery":
         agent_mapping = {
-            "encoder": rb_encoder[game_name](
-                encoding_method="bricks+paddle+ball+discovery",
+            "encoder": ObjectDiscoveryEncoder(
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
+                max_objects=config["encoder"]["max_objects"],
             ),
-            "n_features": 6,
-            "name": model_name + "_rb_player_ball_bricks_discovery" + model_extension,
-            "policy": CustomTransformerPolicy, # TODO: Try CustomTransformerPolicy
+            "n_features": 8,
+            "name": model_name + "_rb_transformer",
+            "policy": CustomTransformerPolicy,
             "use_feature_kwargs": True,
-            "n_stack": None,
+            "n_stack": 2,  # Stack frames for temporal encoding
+            "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
+        }
+    elif key == "deepsets+discovery":
+        agent_mapping = {
+            "encoder": ObjectDiscoveryEncoder(
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+                max_objects=config["encoder"]["max_objects"],
+            ),
+            "n_features": 8,
+            "name": model_name + "_rb_deep_sets" + model_extension,
+            "policy": CustomDeepSetPolicy,
+            "use_feature_kwargs": True,
+            "n_stack": 2,  # Stack frames for temporal encoding
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
 
