@@ -15,13 +15,15 @@ class OCAtariEncoder:
         max_objects: int = 64,
         speed_scale: float = 10.0,
         num_envs: int = 1,
+        use_rgb: bool = False,
     ):
         self.num_envs = num_envs
         self.speed_scale = speed_scale
         self.img_width = 160  # Width of the Atari screen
         self.img_height = 210  # Height of the Atari screen
-        self.n_features = 9
+        self.n_features = 9 if use_rgb else 6
         self.max_objects = max_objects
+        self.use_rgb = use_rgb
 
     def __call__(self, envs) -> np.ndarray:
         """Encodes a batch of frames into feature spaces by return paddle position and ball position + velocity.
@@ -47,7 +49,13 @@ class OCAtariEncoder:
                             UserWarning,
                         )
                         break
-                    rgb_vector = object.rgb
+                    if self.use_rgb:
+                        rgb = object.rgb
+                        rgb_vector = np.array(
+                            self.normalize(rgb[0], 255, "[0,1]"),
+                            self.normalize(rgb[1], 255, "[0,1]"),
+                            self.normalize(rgb[2], 255, "[0,1]"),
+                        )
                     object_vector = np.array(
                         [
                             self.normalize(object.x, self.img_width, "[-1,1]"),
@@ -62,12 +70,11 @@ class OCAtariEncoder:
                             ),
                             self.normalize(object.w, self.img_width, "[0,1]"),
                             self.normalize(object.h, self.img_height, "[0,1]"),
-                            self.normalize(rgb_vector[0], 255, "[0,1]"),
-                            self.normalize(rgb_vector[1], 255, "[0,1]"),
-                            self.normalize(rgb_vector[2], 255, "[0,1]"),
                         ]
                     )
-                    features[idx] = object_vector
+                    features[idx, :6] = object_vector
+                    if self.use_rgb:
+                        features[idx, 6:] = rgb_vector
                     idx += 1
 
             batch_features.append(features)

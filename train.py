@@ -49,6 +49,7 @@ def train(args):
             config["encoder"]["max_objects"],
             num_envs=n_envs,
             speed_scale=config["encoder"]["speed_scale"],
+            use_rgb=config["encoder"].get("use_rgb", False),
         )
 
     # Set up TensorBoard log directory
