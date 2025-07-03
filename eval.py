@@ -54,6 +54,7 @@ def eval(
             n_envs=1,
             seed=0,
             env_kwargs=oc_atari_kwargs,
+            wrapper_kwargs=wrapper_kwargs,
         )
     if agent_mapping["encoder"]:
         env = OCAtariEncoderWrapper(

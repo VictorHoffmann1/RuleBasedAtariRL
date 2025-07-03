@@ -24,16 +24,27 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
     :param n_features: Number of features in the encoded observation
     """
 
-    def __init__(self, venv, max_objects, num_envs, speed_scale=10.0, use_rgb=False, use_category=False):
+    def __init__(
+        self,
+        venv,
+        max_objects,
+        num_envs,
+        speed_scale=10.0,
+        use_rgb=False,
+        use_category=False,
+    ):
         super().__init__(venv)
         self.encoder = OCAtariEncoder(
             max_objects=max_objects,
             speed_scale=speed_scale,
             num_envs=num_envs,
             use_rgb=use_rgb,
-            use_category=use_category
+            use_category=use_category,
         )
-        shape = (max_objects, self.encoder.n_features)  # Each object has 6 features: x, y, dx, dy, w, h
+        shape = (
+            max_objects,
+            self.encoder.n_features,
+        )  # Each object has 6 features: x, y, dx, dy, w, h
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=shape, dtype=np.float32
         )
@@ -43,7 +54,7 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
         return self.encoder(self.venv)
 
     def step_wait(self):
-        _, rewards, terminated, infos = self.venv.step_wait()
+        images, rewards, terminated, infos = self.venv.step_wait()
         encoded_obs = self.encoder(self.venv)
 
         # Process terminal observations in infos to match the encoded observation space
@@ -53,6 +64,7 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
                 # Since we can't encode a single terminal observation without the environment state,
                 # we'll use the current encoded observation as a reasonable approximation
                 info["terminal_observation"] = encoded_obs[i]
+            info["image"] = images[i]  # type: ignore[assignment]
 
         return encoded_obs, rewards, terminated, infos
 

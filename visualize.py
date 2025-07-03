@@ -1,36 +1,22 @@
 import os
 from stable_baselines3 import A2C, PPO
-from components.environment import make_atari_env
-from components.wrappers import EncoderWrapper
+from components.environment import make_oc_atari_env
+from components.wrappers import OCAtariEncoderWrapper
 from components.policies.naive_agent import NaiveAgent
 from components.agent_mappings import get_agent_mapping
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
+from stable_baselines3.common.env_util import make_atari_env
+import gymnasium as gym
+from ocatari.core import OCAtari
 import yaml
 import cv2
 import argparse
 
 
 def test(args):
-    raise NotImplementedError(
-        "Visualization not implemented yet for OCAtari environments."
-    )
-
     # Load configuration
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
-
-    game_name = config["environment"]["game_name"]
-    seed = args.seed
-    model_name = config["model"]["name"]
-
-    agent_mapping = get_agent_mapping(
-        args.agent,
-        config,
-        n_envs=1,  # Single environment for testing
-        game_name=game_name,
-        model_name=model_name,
-        model_extension=args.model,
-    )
 
     model_path = "./weights"
     video_folder = "./videos/"
@@ -39,29 +25,50 @@ def test(args):
 
     debug_video_path = os.path.join(video_folder, args.agent + ".mp4")
     upscale_factor = 4  # Change as needed for visibility
-    x_offset = 8
-    y_offset = 31
+    frame_height = 210 if args.agent != "cnn" else 84  # Atari frame height
+    frame_width = 160 if args.agent != "cnn" else 84  # Atari
 
-    agent_mapping["wrapper_kwargs"]["clip_reward"] = False
-    agent_mapping["wrapper_kwargs"]["terminal_on_life_loss"] = False
+    game_name = config["environment"]["game_name"]
+    seed = args.seed
+    model_name = config["model"]["name"]
 
-    encoder = agent_mapping["encoder"]
-    env = make_atari_env(
-        game_name, n_envs=1, seed=seed, wrapper_kwargs=agent_mapping["wrapper_kwargs"]
+    agent_mapping = get_agent_mapping(
+        args.agent,
+        game_name=game_name,
+        model_name=model_name,
+        model_extension=args.model,
     )
+    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
 
     if args.agent == "cnn":
-        env = VecTransposeImage(env)  # Transpose for CNN input
-    if agent_mapping["n_stack"] is not None:
-        env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
-    if encoder is not None:
-        load_env = EncoderWrapper(
-            env,
-            encoder,
-            agent_mapping["n_features"],
+        env = make_atari_env(
+            game_name,
+            n_envs=1,  # Single environment for evaluation
+            seed=0,  # Fixed seed for reproducibility
+            wrapper_kwargs=wrapper_kwargs,
         )
+        env = VecTransposeImage(env)
+        env = VecFrameStack(env, n_stack=4)
     else:
-        load_env = env
+        oc_atari_kwargs = {
+            "mode": "vision",
+            "hud": False,
+            "obs_mode": "ori",
+        }
+        env = make_oc_atari_env(
+            game_name,
+            n_envs=1,
+            seed=0,
+            env_kwargs=oc_atari_kwargs,
+            wrapper_kwargs=wrapper_kwargs,
+        )
+    if agent_mapping["encoder"]:
+        env = OCAtariEncoderWrapper(
+            env,
+            config["encoder"]["max_objects"],
+            num_envs=1,
+            speed_scale=config["encoder"]["speed_scale"],
+        )
 
     if args.agent == "naive":
         model = NaiveAgent()
@@ -70,38 +77,39 @@ def test(args):
         if model_name == "A2C":
             model = A2C.load(
                 os.path.join(model_path, agent_mapping["name"]),
-                env=load_env,
+                env=env,
                 seed=seed,
                 custom_objects={
-                    "observation_space": load_env.observation_space,
-                    "action_space": load_env.action_space,
+                    "observation_space": env.observation_space,
+                    "action_space": env.action_space,
                 },
             )
         elif model_name == "PPO":
             model = PPO.load(
                 os.path.join(model_path, agent_mapping["name"]),
-                env=load_env,
+                env=env,
                 seed=seed,
                 custom_objects={
-                    "observation_space": load_env.observation_space,
-                    "action_space": load_env.action_space,
+                    "observation_space": env.observation_space,
+                    "action_space": env.action_space,
                 },
             )
         else:
             raise ValueError(f"Model {model_name} not implemented.")
 
     model.set_random_seed(seed)
-    obs = env.reset(seed=seed)
+    env.seed(seed)
+    obs = env.reset()
+    print(obs.shape)
     done = [False]
 
     # Prepare video writer for encoder visualization
-    frame_height, frame_width, channel = obs[0].shape
     out = cv2.VideoWriter(
         debug_video_path,
         cv2.VideoWriter_fourcc(*"mp4v"),
         30,  # FPS
         (frame_width * upscale_factor, frame_height * upscale_factor),
-        isColor=True if channel == 3 else False,
+        isColor=False if args.agent == "cnn" else True,
     )
 
     print("Starting test...")
@@ -113,22 +121,17 @@ def test(args):
     if isinstance(info, list):
         info = info[0]
     lives = info.get("lives", None)
+    image = obs if args.agent == "cnn" else info["image"]
 
     # Safety mechanisms to prevent infinite loops
     max_steps_per_life = 2000  # Maximum steps per life
 
     while not done[0]:
         # Visualize frame
-        features = obs if encoder is None else encoder(obs)
-
         vis_frame = visualize_model(
-            obs,
-            features,
-            encoder,
+            image,
+            get_ocatari_objects(env.envs[0]),
             args.agent,
-            agent_mapping,
-            x_offset=x_offset,
-            y_offset=y_offset,
             upscale_factor=upscale_factor,
             frame_height=frame_height,
             frame_width=frame_width,
@@ -136,14 +139,18 @@ def test(args):
 
         out.write(vis_frame)
 
-        actions, _ = model.predict(features, deterministic=args.deterministic)
+        actions, _ = model.predict(obs, deterministic=args.deterministic)
         action = actions[0]
         obs, reward, done, info = env.step(actions)
         step_count += 1
         total_reward += reward[0]
         per_life_step += 1
 
-        new_lives = info[0].get("lives", lives)
+        if isinstance(info, list):
+            info = info[0]
+        new_lives = info["lives"]
+        image = obs if args.agent == "cnn" else info["image"]
+
         if new_lives < lives:
             obs, _, _, info = env.step([1])  # Force Fire action
             per_life_step = 0
@@ -164,13 +171,9 @@ def test(args):
 
 
 def visualize_model(
-    obs,
-    features,
-    encoder,
+    image,
+    objects,
     agent,
-    agent_mapping,
-    x_offset=8,
-    y_offset=31,
     upscale_factor=4,
     frame_height=210,
     frame_width=160,
@@ -183,46 +186,24 @@ def visualize_model(
         encoder: The encoder used to extract features.
     """
     # --- Visualization ---
-    vis_frame = obs[0].copy()
-    if agent in ["player+ball", "player+ball+bricks", "naive"]:
-        h, w = vis_frame.shape[:2]
-        # Extract encoder features for visualization
-        player_x = features[0][0]  # normalized [-1, 1]
-        ball_x = features[0][1]  # normalized [-1, 1]
-        ball_y = features[0][2]  # normalized [-1, 1]
-
-        # Convert normalized positions to pixel coordinates
-        px = int((player_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
-        bx = int((ball_x + 1) / 2 * (w - 2 * x_offset)) + x_offset
-        by = int((ball_y + 1) / 2 * (h - y_offset)) + y_offset
-
-        # Draw player position (blue circle)
-        cv2.circle(vis_frame, (px, 189), 1, (255, 0, 0), -1)
-        # Draw ball position (red circle)
-        cv2.circle(vis_frame, (bx, by), 1, (0, 0, 255), -1)
-
-        if "bricks" in agent:
-            # Bricks: shape (num_brick_layers, num_bricks_per_layer)
-            bricks_flat = features[0][5:]
-            bricks = bricks_flat.reshape(
-                encoder.num_brick_layers, encoder.num_bricks_per_layer
-            )
-
-            # Draw bricks (green rectangles)
-            brick_y0 = encoder.bricks_y_start
-            brick_h = encoder.brick_y_length
-            brick_w = encoder.brick_x_length
-            for i in range(encoder.num_brick_layers):
-                for j in range(encoder.num_bricks_per_layer):
-                    if bricks[i, j]:
-                        x0 = j * brick_w + x_offset
-                        y0 = brick_y0 + i * brick_h + y_offset
-                        x1 = x0 + brick_w
-                        y1 = y0 + brick_h
-                        cv2.rectangle(vis_frame, (x0, y0), (x1, y1), (0, 255, 0), 1)
-
-    if agent_mapping["n_stack"] is not None:
+    vis_frame = image.copy()
+    if agent == "cnn":
         vis_frame = vis_frame[:, :, 0]  # Convert to grayscale if stacked
+    else:
+        for obj in objects:
+            if obj.category != "NoObject":
+                # Draw object bounding box
+                x1 = int(obj.x)
+                y1 = int(obj.y)
+                x2 = int(obj.x + obj.w)
+                y2 = int(obj.y + obj.h)
+                cv2.rectangle(
+                    vis_frame,
+                    (x1, y1),
+                    (x2, y2),
+                    (0, 255, 0),  # Green color for bounding box
+                    1,
+                )
 
     # Upscale for visibility
     vis_frame = cv2.resize(
@@ -231,7 +212,48 @@ def visualize_model(
         interpolation=cv2.INTER_NEAREST,
     )
 
+    # Draw object labels on upscaled frame for better text quality
+    if agent != "cnn":
+        for obj in objects:
+            if obj.category != "NoObject":
+                # Scale coordinates for upscaled frame
+                x1_scaled = int(obj.x * upscale_factor)
+                y1_scaled = int(obj.y * upscale_factor)
+
+                # Draw object label on upscaled frame
+                cv2.putText(
+                    vis_frame,
+                    f"{obj.category}",
+                    (x1_scaled, y1_scaled - 1),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.25 * upscale_factor,  # Scale font size with upscale factor
+                    (255, 0, 255),  # Magenta color for label
+                    max(1, upscale_factor // 2),  # Scale line thickness
+                )
+
     return vis_frame
+
+
+def get_ocatari_objects(env: gym.Env):
+    """
+    Get the objects from the underlying OCAtari environment through the wrapper chain.
+
+    :param env: The wrapped environment
+    :return: The objects from the OCAtari environment
+    """
+    # Traverse through wrappers to find the OCAtari instance
+    current_env = env
+    while hasattr(current_env, "env"):
+        if isinstance(current_env, OCAtari):
+            return current_env.objects
+        current_env = current_env.env
+
+    # Check if the current env is OCAtari
+    if isinstance(current_env, OCAtari):
+        return current_env.objects
+
+    # If we can't find OCAtari, raise an error
+    raise ValueError("No OCAtari environment found in the wrapper chain")
 
 
 if __name__ == "__main__":
