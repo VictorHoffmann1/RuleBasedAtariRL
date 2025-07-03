@@ -81,11 +81,11 @@ class SelfAttentionDeepSetsEncoder(nn.Module):
             mask = ~mask.transpose(
                 0, 1
             )  # [seq_len, batch_size] — now True for valid entries
-            valid_counts = mask.sum(dim=0, keepdim=True).clamp(min=1)
+            valid_counts = mask.sum(dim=0).clamp(min=1)
 
             x = self.norm2(x + attn_output)
             x = x.masked_fill(~mask.unsqueeze(-1), 0.0)
-            x = x.sum(dim=0) / valid_counts  # [batch_size, hidden_dim]
+            x = x.sum(dim=0) / valid_counts.unsqueeze(-1)  # [batch_size, hidden_dim]
 
         elif self.pooling == "cls_token":
             # Use cls_token as the output representation
@@ -125,7 +125,7 @@ class CustomSelfAttentionDeepSetsPolicy(ActorCriticPolicy):
         num_heads=4,
         hidden_dim=64,
         output_dim=32,
-        pooling="cls_token",
+        pooling="mean",
         **kwargs,
     ):
         super().__init__(
