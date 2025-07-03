@@ -7,6 +7,8 @@ encoder:
   speed_scale: 10.0
   num_envs: *num_envs
   max_objects: 64 # Maximum number of objects to encode for transformer / deepsets method
+  use_rgb: false # Use RGB colors of objects
+  use_category: true # Use object categories (paddle, ball, etc.) in the encoding
 
 model:
   name: "PPO" # Model name (PPO or A2C)

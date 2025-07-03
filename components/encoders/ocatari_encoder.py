@@ -16,14 +16,20 @@ class OCAtariEncoder:
         speed_scale: float = 10.0,
         num_envs: int = 1,
         use_rgb: bool = False,
+        use_category: bool = False,
     ):
         self.num_envs = num_envs
         self.speed_scale = speed_scale
         self.img_width = 160  # Width of the Atari screen
         self.img_height = 210  # Height of the Atari screen
-        self.n_features = 9 if use_rgb else 6
+        self.n_features = 6
+        if use_rgb:
+            self.n_features += 3
+        if use_category:
+            self.n_features += 3
         self.max_objects = max_objects
         self.use_rgb = use_rgb
+        self.use_category = use_category
 
     def __call__(self, envs) -> np.ndarray:
         """Encodes a batch of frames into feature spaces by return paddle position and ball position + velocity.
@@ -49,13 +55,6 @@ class OCAtariEncoder:
                             UserWarning,
                         )
                         break
-                    if self.use_rgb:
-                        rgb = object.rgb
-                        rgb_vector = np.array(
-                            self.normalize(rgb[0], 255, "[0,1]"),
-                            self.normalize(rgb[1], 255, "[0,1]"),
-                            self.normalize(rgb[2], 255, "[0,1]"),
-                        )
                     object_vector = np.array(
                         [
                             self.normalize(object.x, self.img_width, "[-1,1]"),
@@ -72,9 +71,26 @@ class OCAtariEncoder:
                             self.normalize(object.h, self.img_height, "[0,1]"),
                         ]
                     )
-                    features[idx, :6] = object_vector
                     if self.use_rgb:
-                        features[idx, 6:] = rgb_vector
+                        rgb = object.rgb
+                        rgb_vector = np.array(
+                            self.normalize(rgb[0], 255, "[0,1]"),
+                            self.normalize(rgb[1], 255, "[0,1]"),
+                            self.normalize(rgb[2], 255, "[0,1]"),
+                        )
+                        object_vector = np.concatenate((object_vector, rgb_vector))
+                    if self.use_category:
+                        category_vector = np.zeros(3)
+                        if object.category == "Player":
+                            category_vector[0] = 1.0
+                        elif object.category == "Ball":
+                            category_vector[1] = 1.0
+                        else:
+                            category_vector[2] = 1.0
+                        object_vector = np.concatenate(
+                            (object_vector, category_vector)
+                        )
+                    features[idx] = object_vector
                     idx += 1
 
             batch_features.append(features)

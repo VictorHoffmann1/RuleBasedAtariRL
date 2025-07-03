@@ -19,6 +19,11 @@ def train(args):
     game_name = config["environment"]["game_name"]
     seed = config["environment"]["seed"]
     model_name = config["model"]["name"]
+    n_features = 6
+    if config["encoder"]["use_rgb"]:
+        n_features += 3
+    if config["encoder"]["use_category"]:
+        n_features += 3
 
     # Get agent mappings configuration
     agent_mapping = get_agent_mapping(args.agent, game_name, model_name)
@@ -49,7 +54,8 @@ def train(args):
             config["encoder"]["max_objects"],
             num_envs=n_envs,
             speed_scale=config["encoder"]["speed_scale"],
-            use_rgb=config["encoder"].get("use_rgb", False),
+            use_rgb=config["encoder"]["use_rgb"],
+            use_category=config["encoder"]["use_category"],
         )
 
     # Set up TensorBoard log directory
@@ -110,6 +116,9 @@ def train(args):
             max_grad_norm=model_params["max_grad_norm"],
             tensorboard_log=log_dir,
             seed=seed,
+            policy_kwargs={"n_features": n_features}
+            if agent_mapping["use_feature_kwargs"]
+            else {},
         )
 
     model.learn(

@@ -26,30 +26,36 @@ def get_agent_mapping(key, game_name, model_name, model_extension=""):
             "encoder": True,
             "name": model_name + "_" + game_name + "_transformer" + model_extension,
             "policy": CustomTransformerPolicy,
+            "use_feature_kwargs": True,
         }
     elif key == "deepsets":
         agent_mapping = {
             "encoder": True,
             "name": model_name + "_" + game_name + "_deep_sets" + model_extension,
             "policy": CustomDeepSetPolicy,
+            "use_feature_kwargs": True,
         }
     elif key == "lstm":
         agent_mapping = {
             "encoder": True,
             "name": model_name + "_" + game_name + "_lstm" + model_extension,
             "policy": CustomLSTMPolicy,
+            "use_feature_kwargs": True,
         }
     elif key == "gnn":
         agent_mapping = {
             "encoder": True,
             "name": model_name + "_" + game_name + "_gnn" + model_extension,
             "policy": CustomGNNPolicy,
+            "use_feature_kwargs": True,
         }
     elif key == "cnn":
         agent_mapping = {
             "encoder": None,
             "name": model_name + "_" + game_name + "_cnn" + model_extension,
             "policy": "CnnPolicy",
+            "n_stack": 4,  # Number of frames to stack for CNN input
+            "use_feature_kwargs": False,
         }
     elif key == "naive":
         raise NotImplementedError(

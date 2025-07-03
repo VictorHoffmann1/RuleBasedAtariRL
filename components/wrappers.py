@@ -24,13 +24,14 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
     :param n_features: Number of features in the encoded observation
     """
 
-    def __init__(self, venv, max_objects, num_envs, speed_scale=10.0, use_rgb=False):
+    def __init__(self, venv, max_objects, num_envs, speed_scale=10.0, use_rgb=False, use_category=False):
         super().__init__(venv)
         self.encoder = OCAtariEncoder(
             max_objects=max_objects,
             speed_scale=speed_scale,
             num_envs=num_envs,
             use_rgb=use_rgb,
+            use_category=use_category
         )
         shape = (max_objects, self.encoder.n_features)  # Each object has 6 features: x, y, dx, dy, w, h
         self.observation_space = spaces.Box(
