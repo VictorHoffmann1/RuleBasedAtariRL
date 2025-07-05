@@ -20,7 +20,8 @@ class SetTransformer(nn.Module):
                 nn.Linear(dim_hidden, dim_output))
 
     def forward(self, X):
-        return self.dec(self.enc(X))
+        output = self.dec(self.enc(X)).squeeze(1)
+        return output
 
 
 class SetTransformerFeaturesExtractor(BaseFeaturesExtractor):

@@ -4,6 +4,7 @@ from components.policies.lstm import CustomLSTMPolicy
 from components.policies.gnn import CustomGNNPolicy
 from components.policies.sa_deepsets import CustomSelfAttentionDeepSetsPolicy
 from components.policies.set_transformer import CustomSetTransformerPolicy
+from components.policies.deepsets_ext import CustomDeepSetExtensionPolicy
 
 
 def get_agent_mapping(key, game_name, model_name, model_extension=""):
@@ -35,6 +36,13 @@ def get_agent_mapping(key, game_name, model_name, model_extension=""):
             "encoder": True,
             "name": model_name + "_" + game_name + "_deep_sets" + model_extension,
             "policy": CustomDeepSetPolicy,
+            "use_feature_kwargs": True,
+        }
+    elif key == "deepsets_extension":
+        agent_mapping = {
+            "encoder": True,
+            "name": model_name + "_" + game_name + "_deep_sets_extension" + model_extension,
+            "policy": CustomDeepSetExtensionPolicy,
             "use_feature_kwargs": True,
         }
     elif key == "set_transformer":

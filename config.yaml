@@ -6,7 +6,7 @@ environment:
 encoder:
   speed_scale: 10.0
   num_envs: *num_envs
-  max_objects: 64 # Maximum number of objects to encode for transformer / deepsets method
+  max_objects: 32 # Maximum number of objects to encode for transformer / deepsets method
   use_rgb: false # Use RGB colors of objects
   use_category: false # Use object categories (paddle, ball, etc.) in the encoding
 
@@ -14,7 +14,7 @@ model:
   name: "PPO" # Model name (PPO or A2C)
 
   # Global parameters
-  learning_rate: 0.001 # Ignored if linear_scheduler is true
+  learning_rate: 0.0005 # Ignored if linear_scheduler is true
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 
