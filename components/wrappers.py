@@ -30,6 +30,7 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
         max_objects,
         num_envs,
         speed_scale=10.0,
+        method="discovery",
         use_rgb=False,
         use_category=False,
     ):
@@ -38,13 +39,18 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
             max_objects=max_objects,
             speed_scale=speed_scale,
             num_envs=num_envs,
+            method=method,
             use_rgb=use_rgb,
             use_category=use_category,
         )
         shape = (
-            max_objects,
-            self.encoder.n_features,
-        )  # Each object has 6 features: x, y, dx, dy, w, h
+            (
+                max_objects,
+                self.encoder.n_features,
+            )
+            if method == "discovery"
+            else (self.encoder.n_features,)
+        )
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=shape, dtype=np.float32
         )

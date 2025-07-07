@@ -61,6 +61,7 @@ def eval(
             env,
             config["encoder"]["max_objects"],
             num_envs=1,
+            method=agent_mapping["method"],
             speed_scale=config["encoder"]["speed_scale"],
             use_rgb=config["encoder"]["use_rgb"],
             use_category=config["encoder"]["use_category"],
