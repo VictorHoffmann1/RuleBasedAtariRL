@@ -17,7 +17,7 @@ class RelationalNetwork(nn.Module):
 
         # Pairwise interaction MLP (excluding self-interaction)
         self.xi = nn.Sequential(
-            nn.Linear(2*input_dim, hidden_dim),
+            nn.Linear(2 * input_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
@@ -33,7 +33,7 @@ class RelationalNetwork(nn.Module):
         # Global MLP after pooling
         self.rho = nn.Sequential(
             nn.Linear(
-                hidden_dim, 
+                hidden_dim,
                 hidden_dim,
             ),
             nn.ReLU(),
@@ -50,11 +50,15 @@ class RelationalNetwork(nn.Module):
         obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
 
         # Get top-k interactions using attention
-        ij_idxs, ij_weights = self.top_k_attention(x, padding_mask=obj_padding_mask)  # (B, top_k, 2), (B, top_k)
+        ij_idxs, ij_weights = self.top_k_attention(
+            x, padding_mask=obj_padding_mask
+        )  # (B, top_k, 2), (B, top_k)
         self_mask = ij_idxs[..., 0] == ij_idxs[..., 1]  # (B, top_k)
 
         # Batch indices for advanced indexing
-        batch_indices = torch.arange(B, device=x.device).unsqueeze(1).expand(-1, self.top_k)  # (B, top_k)
+        batch_indices = (
+            torch.arange(B, device=x.device).unsqueeze(1).expand(-1, self.top_k)
+        )  # (B, top_k)
 
         # Index object vectors
         i_idx = ij_idxs[..., 0]  # (B, top_k)
@@ -71,10 +75,12 @@ class RelationalNetwork(nn.Module):
 
         # Prepare pairwise interaction features
         x_pair = torch.cat([x_i, x_j], dim=-1)  # (B, top_k, 2D)
-        feat_nonself = self.xi(x_pair)          # (B, top_k, H)
+        feat_nonself = self.xi(x_pair)  # (B, top_k, H)
 
         # Merge features based on mask
-        interaction_feat = torch.where(self_mask_exp, feat_self, feat_nonself)  # (B, top_k, H)
+        interaction_feat = torch.where(
+            self_mask_exp, feat_self, feat_nonself
+        )  # (B, top_k, H)
 
         # Weighted pooling
         ij_weights = ij_weights.unsqueeze(-1)  # (B, top_k, 1)
@@ -88,7 +94,9 @@ class RelationalNetwork(nn.Module):
 class RelationalNetworkFeaturesExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space, n_features, hidden_dim, output_dim, top_k):
         super().__init__(observation_space, features_dim=output_dim)
-        self.relational_network_encoder = RelationalNetwork(n_features, hidden_dim, output_dim, top_k)
+        self.relational_network_encoder = RelationalNetwork(
+            n_features, hidden_dim, output_dim, top_k
+        )
 
     def forward(self, observations):
         return self.relational_network_encoder(observations)
@@ -120,6 +128,7 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
             **kwargs,
         )
 
+
 class TopKAttention(nn.Module):
     def __init__(self, input_dim, proj_dim, top_k):
         """
@@ -130,7 +139,7 @@ class TopKAttention(nn.Module):
         """
         super().__init__()
         self.top_k = top_k
-        self.scale = proj_dim ** 0.5
+        self.scale = proj_dim**0.5
 
         self.query_proj = nn.Linear(input_dim, proj_dim)
         self.key_proj = nn.Linear(input_dim, proj_dim)
@@ -149,7 +158,7 @@ class TopKAttention(nn.Module):
         device = x.device
 
         Q = self.query_proj(x)  # (B, L, proj_dim)
-        K = self.key_proj(x)    # (B, L, proj_dim)
+        K = self.key_proj(x)  # (B, L, proj_dim)
         attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / self.scale  # (B, L, L)
 
         # Build full mask (True = valid, False = invalid)
@@ -165,10 +174,12 @@ class TopKAttention(nn.Module):
         full_mask_flat = full_mask.view(B, -1)
 
         # Set invalid scores to -inf
-        attn_scores_flat = attn_scores_flat.masked_fill(~full_mask_flat, float('-inf'))
+        attn_scores_flat = attn_scores_flat.masked_fill(~full_mask_flat, float("-inf"))
 
         # Get top-k across all (valid) entries
-        topk_vals, topk_idx = torch.topk(attn_scores_flat, self.top_k, dim=-1, largest=True)
+        topk_vals, topk_idx = torch.topk(
+            attn_scores_flat, self.top_k, dim=-1, largest=True
+        )
         topk_weights = torch.softmax(topk_vals, dim=-1)  # (B, top_k)
 
         # Convert flat indices to (i, j)
@@ -177,7 +188,9 @@ class TopKAttention(nn.Module):
         topk_indices = torch.stack([row_idx, col_idx], dim=-1)  # (B, top_k, 2)
         if self.count % 1000 == 0:
             for i in range(10):
-                print(f"Top-10 Pairs: {topk_indices[0,i,0].item()} -> {topk_indices[0,i,1].item()} with weight {topk_weights[0][i].item():.2f}")
+                print(
+                    f"Top-10 Pairs: {topk_indices[0, i, 0].item()} -> {topk_indices[0, i, 1].item()} with weight {topk_weights[0][i].item():.2f}"
+                )
         self.count += 1
 
         return topk_indices, topk_weights

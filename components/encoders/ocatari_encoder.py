@@ -65,8 +65,8 @@ class OCAtariEncoder:
                             break
                         object_vector = np.array(
                             [
-                                self.normalize(object.x, self.img_width, True),
-                                self.normalize(object.y, self.img_height, True),
+                                self.normalize(object.center[0], self.img_width, True),
+                                self.normalize(object.center[1], self.img_height, True),
                                 self.normalize(object.dx, self.speed_scale, False),
                                 self.normalize(object.dy, self.speed_scale, False),
                                 self.normalize(object.w, self.img_width, False),
