@@ -102,10 +102,16 @@ class OCAtariEncoder:
                 features[1:3] = -2.0  # Initialize ball position to -2.0
                 for object in objects:
                     if object.category == "Player":
-                        features[0] = self.normalize(object.x, self.img_width, True)
+                        features[0] = self.normalize(
+                            object.center[0], self.img_width, True
+                        )
                     elif object.category == "Ball":
-                        features[1] = self.normalize(object.x, self.img_width, True)
-                        features[2] = self.normalize(object.y, self.img_height, True)
+                        features[1] = self.normalize(
+                            object.center[0], self.img_width, True
+                        )
+                        features[2] = self.normalize(
+                            object.center[1], self.img_height, True
+                        )
                         features[3] = self.normalize(object.dx, self.speed_scale, False)
                         features[4] = self.normalize(object.dy, self.speed_scale, False)
 
