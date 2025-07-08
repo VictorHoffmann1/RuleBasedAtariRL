@@ -118,7 +118,7 @@ class BreakoutEncoder:
                     ]
                 )
 
-            elif self.method == "paddle-ball": # Egocentric method
+            elif self.method == "paddle-ball":  # Egocentric method
                 features = np.array(
                     [
                         self.ball_x[i] - player_x,

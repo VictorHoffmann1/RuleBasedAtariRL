@@ -1,9 +1,11 @@
 import numpy as np
 
+
 # Linear LR schedule
 def linear_scheduler(initial_value: float, final_value: float):
     def func(progress_remaining: float) -> float:
         return final_value + (initial_value - final_value) * progress_remaining
+
     return func
 
 
@@ -17,5 +19,5 @@ def exponential_scheduler(initial_value: float, final_value: float):
         frac = 1.0 - progress_remaining
         log_lr = log_initial + frac * (log_final - log_initial)
         return float(np.exp(log_lr))
-    
+
     return func

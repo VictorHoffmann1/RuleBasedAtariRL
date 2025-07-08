@@ -5,6 +5,7 @@ from components.policies.transformer import CustomTransformerPolicy
 from components.policies.deep_sets import CustomDeepSetPolicy
 from components.policies.lstm import CustomLSTMPolicy
 from components.policies.gnn import CustomGNNPolicy
+from components.policies.relational_network import CustomRelationalNetworkPolicy
 
 
 def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extension=""):
@@ -79,6 +80,20 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             "n_features": 6,
             "name": model_name + "_rb_deepsets" + model_extension,
             "policy": CustomDeepSetPolicy,  # TODO: Try CustomTransformerPolicy
+            "use_feature_kwargs": True,
+            "n_stack": None,
+            "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
+        }
+    elif key == "relational_network":
+        agent_mapping = {
+            "encoder": rb_encoder[game_name](
+                encoding_method="bricks+paddle+ball+discovery",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+            ),
+            "n_features": 6,
+            "name": model_name + "_relational_net" + model_extension,
+            "policy": CustomRelationalNetworkPolicy,  # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
