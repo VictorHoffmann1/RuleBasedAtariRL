@@ -4,6 +4,8 @@ from components.encoders.ocatari_encoder import OCAtariEncoder
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+from copy import deepcopy
+
 
 try:
     import cv2
@@ -75,7 +77,7 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
         return encoded_obs, rewards, terminated, infos
 
 
-class StickyActionEnv(gym.Wrapper):
+class StickyActionEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
     """
     Sticky action.
 
@@ -101,7 +103,7 @@ class StickyActionEnv(gym.Wrapper):
         return self.env.step(self._sticky_action)
 
 
-class NoopResetEnv(gym.Wrapper):
+class NoopResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
     """
     Sample initial states by taking random number of no-ops on reset.
     No-op is assumed to be action 0.
@@ -118,22 +120,22 @@ class NoopResetEnv(gym.Wrapper):
         assert env.unwrapped.get_action_meanings()[0] == "NOOP"  # type: ignore[attr-defined]
 
     def reset(self, **kwargs) -> AtariResetReturn:
-        obs, info = self.env.reset(**kwargs)
+        self.env.reset(**kwargs)
         if self.override_num_noops is not None:
             noops = self.override_num_noops
         else:
             noops = self.unwrapped.np_random.integers(1, self.noop_max + 1)
         assert noops > 0
-        # obs and info are already set from the reset call above
+        obs = np.zeros(0)
+        info: dict = {}
         for _ in range(noops):
-            step_result = self.env.step(self.noop_action)
-            obs, _, terminated, truncated, info = step_result
+            obs, _, terminated, truncated, info = self.env.step(self.noop_action)
             if terminated or truncated:
                 obs, info = self.env.reset(**kwargs)
         return obs, info
 
 
-class FireResetEnv(gym.Wrapper):
+class FireResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
     """
     Take action on reset for environments that are fixed until firing.
 
@@ -146,56 +148,14 @@ class FireResetEnv(gym.Wrapper):
         assert len(env.unwrapped.get_action_meanings()) >= 3  # type: ignore[attr-defined]
 
     def reset(self, **kwargs) -> AtariResetReturn:
-        obs, info = self.env.reset(**kwargs)
-        # Step 1
-        step_result = self.env.step(1)
-        obs, _, terminated, truncated, info = step_result
-        done = terminated or truncated
-        if done:
-            obs, info = self.env.reset(**kwargs)
-        # Step 2
-        step_result = self.env.step(2)
-        obs, _, terminated, truncated, info = step_result
-        done = terminated or truncated
-        if done:
-            obs, info = self.env.reset(**kwargs)
-        return obs, info
-
-
-class EpisodicLifeEnv(gym.Wrapper):
-    """
-    Make end-of-life == end-of-episode, but only reset on true game over.
-    Done by DeepMind for the DQN and co. since it helps value estimation.
-
-    :param env: Environment to wrap
-    """
-
-    def __init__(self, env: gym.Env) -> None:
-        super().__init__(env)
-        self.lives = 0
-        self.was_real_done = True
-
-    def step(self, action: int) -> AtariStepReturn:
-        step_result = self.env.step(action)
-        obs, reward, terminated, truncated, info = step_result
-        self.was_real_done = terminated or truncated
-        lives = info["lives"]
-        if 0 < lives < self.lives:
-            terminated = True
-        self.lives = lives
-        return obs, reward, terminated, truncated, info
-
-    def reset(self, **kwargs) -> AtariResetReturn:
-        if self.was_real_done:
-            obs, info = self.env.reset(**kwargs)
-        else:
-            step_result = self.env.step(0)
-            obs, _, terminated, truncated, info = step_result
-            done = terminated or truncated
-            if done:
-                obs, info = self.env.reset(**kwargs)
-        self.lives = info["lives"]  # type: ignore[attr-defined]
-        return obs, info
+        self.env.reset(**kwargs)
+        obs, _, terminated, truncated, _ = self.env.step(1)
+        if terminated or truncated:
+            self.env.reset(**kwargs)
+        obs, _, terminated, truncated, _ = self.env.step(2)
+        if terminated or truncated:
+            self.env.reset(**kwargs)
+        return obs, {}
 
 
 class ClipRewardEnv(gym.RewardWrapper):
@@ -218,6 +178,129 @@ class ClipRewardEnv(gym.RewardWrapper):
         return np.sign(float(reward))
 
 
+class EpisodicLifeEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
+    """
+    Make end-of-life == end-of-episode, but only reset on true game over.
+    Done by DeepMind for the DQN and co. since it helps value estimation.
+
+    :param env: Environment to wrap
+    """
+
+    def __init__(self, env: gym.Env) -> None:
+        super().__init__(env)
+        self.lives = 0
+        self.was_real_done = True
+
+    def step(self, action: int) -> AtariStepReturn:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self.was_real_done = terminated or truncated
+        # check current lives, make loss of life terminal,
+        # then update lives to handle bonus lives
+        lives = info["lives"]
+        if 0 < lives < self.lives:
+            # for Qbert sometimes we stay in lives == 0 condition for a few frames
+            # so its important to keep lives > 0, so that we only reset once
+            # the environment advertises done.
+            terminated = True
+        self.lives = lives
+        return obs, reward, terminated, truncated, info
+
+    def reset(self, **kwargs) -> AtariResetReturn:
+        """
+        Calls the Gym environment reset, only when lives are exhausted.
+        This way all states are still reachable even though lives are episodic,
+        and the learner need not know about any of this behind-the-scenes.
+
+        :param kwargs: Extra keywords passed to env.reset() call
+        :return: the first observation of the environment
+        """
+        if self.was_real_done:
+            obs, info = self.env.reset(**kwargs)
+        else:
+            # no-op step to advance from terminal/lost life state
+            obs, _, terminated, truncated, info = self.env.step(0)
+
+            # The no-op step can lead to a game over, so we need to check it again
+            # to see if we should reset the environment and avoid the
+            # monitor.py `RuntimeError: Tried to step environment that needs reset`
+            if terminated or truncated:
+                obs, info = self.env.reset(**kwargs)
+        self.lives = info["lives"]
+        return obs, info
+
+
+class TimeLimit(gym.Wrapper, gym.utils.RecordConstructorArgs):
+    """This wrapper will issue a `truncated` signal if a maximum number of timesteps is exceeded.
+
+    If a truncation is not defined inside the environment itself, this is the only place that the truncation signal is issued.
+    Critically, this is different from the `terminated` signal that originates from the underlying environment as part of the MDP.
+    """
+
+    def __init__(
+        self,
+        env: gym.Env,
+        max_episode_steps: int,
+    ):
+        """Initializes the :class:`TimeLimit` wrapper with an environment and the number of steps after which truncation will occur.
+
+        Args:
+            env: The environment to apply the wrapper
+            max_episode_steps: An optional max episode steps (if ``None``, ``env.spec.max_episode_steps`` is used)
+        """
+        gym.utils.RecordConstructorArgs.__init__(
+            self, max_episode_steps=max_episode_steps
+        )
+        gym.Wrapper.__init__(self, env)
+
+        self._max_episode_steps = max_episode_steps
+        self._elapsed_steps = None
+
+    def step(self, action):
+        """Steps through the environment and if the number of steps elapsed exceeds ``max_episode_steps`` then truncate.
+
+        Args:
+            action: The environment step action
+
+        Returns:
+            The environment step ``(observation, reward, terminated, truncated, info)`` with `truncated=True`
+            if the number of steps elapsed >= max episode steps
+
+        """
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        self._elapsed_steps += 1
+
+        if self._elapsed_steps >= self._max_episode_steps:
+            truncated = True
+
+        return observation, reward, terminated, truncated, info
+
+    def reset(self, **kwargs):
+        """Resets the environment with :param:`**kwargs` and sets the number of steps elapsed to zero.
+
+        Args:
+            **kwargs: The kwargs to reset the environment with
+
+        Returns:
+            The reset environment
+        """
+        self._elapsed_steps = 0
+        return self.env.reset(**kwargs)
+
+    @property
+    def spec(self):
+        """Modifies the environment spec to include the `max_episode_steps=self._max_episode_steps`."""
+        if self._cached_spec is not None:
+            return self._cached_spec
+
+        env_spec = self.env.spec
+        if env_spec is not None:
+            env_spec = deepcopy(env_spec)
+            env_spec.max_episode_steps = self._max_episode_steps
+
+        self._cached_spec = env_spec
+        return env_spec
+
+
 class AtariWrapper(gym.Wrapper):
     """
     Atari 2600 preprocessings
@@ -225,11 +308,7 @@ class AtariWrapper(gym.Wrapper):
     Specifically:
 
     * Noop reset: obtain initial state by taking random number of no-ops on reset.
-    * Frame skipping: 4 by default
-    * Max-pooling: most recent two observations
     * Termination signal when a life is lost.
-    * Resize to a square image: 84x84 by default
-    * Grayscale observation
     * Clip reward to {-1, 0, 1}
     * Sticky actions: disabled by default
 
@@ -253,11 +332,16 @@ class AtariWrapper(gym.Wrapper):
     def __init__(
         self,
         env: gym.Env,
+        max_episode_steps: int = 5000,
         noop_max: int = 30,
         terminal_on_life_loss: bool = True,
         clip_reward: bool = True,
         action_repeat_probability: float = 0.0,
     ) -> None:
+        env = TimeLimit(
+            env,
+            max_episode_steps,  # type: ignore[attr-defined]
+        )
         if action_repeat_probability > 0.0:
             env = StickyActionEnv(env, action_repeat_probability)
         if noop_max > 0:

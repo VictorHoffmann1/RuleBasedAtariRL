@@ -65,28 +65,20 @@ class OCAtariEncoder:
                             break
                         object_vector = np.array(
                             [
-                                self.normalize(object.x, self.img_width, "[-1,1]"),
-                                self.normalize(object.y, self.img_height, "[-1,1]"),
-                                self.normalize(
-                                    object.dx,
-                                    self.img_width / self.speed_scale,
-                                    "[0,1]",
-                                ),
-                                self.normalize(
-                                    object.dy,
-                                    self.img_height / self.speed_scale,
-                                    "[0,1]",
-                                ),
-                                self.normalize(object.w, self.img_width, "[0,1]"),
-                                self.normalize(object.h, self.img_height, "[0,1]"),
+                                self.normalize(object.x, self.img_width, True),
+                                self.normalize(object.y, self.img_height, True),
+                                self.normalize(object.dx, self.speed_scale, False),
+                                self.normalize(object.dy, self.speed_scale, False),
+                                self.normalize(object.w, self.img_width, False),
+                                self.normalize(object.h, self.img_height, False),
                             ]
                         )
                         if self.use_rgb:
                             rgb = object.rgb
                             rgb_vector = np.array(
-                                self.normalize(rgb[0], 255, "[0,1]"),
-                                self.normalize(rgb[1], 255, "[0,1]"),
-                                self.normalize(rgb[2], 255, "[0,1]"),
+                                self.normalize(rgb[0], 255, False),
+                                self.normalize(rgb[1], 255, False),
+                                self.normalize(rgb[2], 255, False),
                             )
                             object_vector = np.concatenate((object_vector, rgb_vector))
                         if self.use_category:
@@ -104,23 +96,18 @@ class OCAtariEncoder:
                         idx += 1
 
             elif self.method == "expert":
-                features = -2.0 * np.ones(
+                features = np.zeros(
                     (self.n_features)
                 )  # paddle_x, ball_x, ball_y, ball_dx, ball_dy
+                features[1:3] = -2.0  # Initialize ball position to -2.0
                 for object in objects:
                     if object.category == "Player":
-                        features[0] = self.normalize(object.x, self.img_width, "[-1,1]")
+                        features[0] = self.normalize(object.x, self.img_width, True)
                     elif object.category == "Ball":
-                        features[1] = self.normalize(object.x, self.img_width, "[-1,1]")
-                        features[2] = self.normalize(
-                            object.y, self.img_height, "[-1,1]"
-                        )
-                        features[3] = self.normalize(
-                            object.dx, self.img_width / self.speed_scale, "[0,1]"
-                        )
-                        features[4] = self.normalize(
-                            object.dy, self.img_height / self.speed_scale, "[0,1]"
-                        )
+                        features[1] = self.normalize(object.x, self.img_width, True)
+                        features[2] = self.normalize(object.y, self.img_height, True)
+                        features[3] = self.normalize(object.dx, self.speed_scale, False)
+                        features[4] = self.normalize(object.dy, self.speed_scale, False)
 
             batch_features.append(features)
 
@@ -149,20 +136,16 @@ class OCAtariEncoder:
         raise ValueError("No OCAtari environment found in the wrapper chain")
 
     @staticmethod
-    def normalize(value, scale, range_type="[0,1]"):
+    def normalize(value, scale, centering=False):
         """
         Normalize a value to the range [-1, 1] based on a scale.
 
         :param value: The value to normalize
         :param scale: The scale for normalization
+        :param centering: If True, center the value around 0 before scaling
         :return: Normalized value in the range [-1, 1]
         """
-        if range_type == "[0,1]":
-            # Normalize to [0, 1]
-            return value / scale if scale != 0 else 0
-        elif range_type == "[-1,1]":
-            return 2 * (value / scale) - 1 if scale != 0 else 0
+        if centering:
+            return np.clip(2 * (value / scale) - 1, -1, 1) if scale != 0 else 0
         else:
-            raise ValueError(
-                f"Unsupported range type: {range_type}. Use '[0,1]' or '[-1,1]'."
-            )
+            return np.clip(value / scale, -1, 1) if scale != 0 else 0

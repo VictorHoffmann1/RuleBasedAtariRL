@@ -4,7 +4,7 @@ environment:
   seed: 7
 
 encoder:
-  speed_scale: 10.0
+  speed_scale: 8.0
   num_envs: *num_envs
   max_objects: 32 # Maximum number of objects to encode for transformer / deepsets method
   use_rgb: false # Use RGB colors of objects

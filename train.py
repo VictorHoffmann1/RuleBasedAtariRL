@@ -5,6 +5,7 @@ from components.agent_mappings import get_agent_mapping
 from components.schedulers import linear_scheduler, exponential_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.env_util import make_atari_env
+from stable_baselines3.common.env_checker import check_env
 import yaml
 import os
 import argparse
@@ -58,6 +59,10 @@ def train(args):
             use_rgb=config["encoder"]["use_rgb"],
             use_category=config["encoder"]["use_category"],
         )
+
+    # Check if the environment is valid
+    for environment in env.envs:
+        check_env(environment)
 
     # Set up TensorBoard log directory
     log_dir = "./logs/"
