@@ -103,6 +103,59 @@ class StickyActionEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
         return self.env.step(self._sticky_action)
 
 
+class MaxAndSkipEnv(gym.Wrapper):
+    """
+    Return only every ``skip``-th frame (frameskipping)
+    and optionally return the max between the two last frames.
+
+    :param env: Environment to wrap
+    :param skip: Number of ``skip``-th frame
+        The same action will be taken ``skip`` times.
+    :param max_pool: If True, return the max over the last two frames. If False, return the last frame only.
+    """
+
+    def __init__(self, env: gym.Env, skip: int = 4, max_pool: bool = True) -> None:
+        super().__init__(env)
+        # most recent raw observations (for max pooling across time steps)
+        assert env.observation_space.dtype is not None, (
+            "No dtype specified for the observation space"
+        )
+        assert env.observation_space.shape is not None, (
+            "No shape defined for the observation space"
+        )
+        self._obs_buffer = np.zeros(
+            (2, *env.observation_space.shape), dtype=env.observation_space.dtype
+        )
+        self._skip = skip
+        self._max_pool = max_pool
+
+    def step(self, action: int) -> AtariStepReturn:
+        """
+        Step the environment with the given action
+        Repeat action, sum reward, and max over last observations (if enabled).
+
+        :param action: the action
+        :return: observation, reward, terminated, truncated, information
+        """
+        total_reward = 0.0
+        terminated = truncated = False
+        for i in range(self._skip):
+            obs, reward, terminated, truncated, info = self.env.step(action)
+            done = terminated or truncated
+            if i == self._skip - 2:
+                self._obs_buffer[0] = obs
+            if i == self._skip - 1:
+                self._obs_buffer[1] = obs
+            total_reward += float(reward)
+            if done:
+                break
+        if self._max_pool:
+            max_frame = self._obs_buffer.max(axis=0)
+            return max_frame, total_reward, terminated, truncated, info
+        else:
+            return self._obs_buffer[1], total_reward, terminated, truncated, info
+
+
 class NoopResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
     """
     Sample initial states by taking random number of no-ops on reset.
@@ -229,78 +282,6 @@ class EpisodicLifeEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
         return obs, info
 
 
-class TimeLimit(gym.Wrapper, gym.utils.RecordConstructorArgs):
-    """This wrapper will issue a `truncated` signal if a maximum number of timesteps is exceeded.
-
-    If a truncation is not defined inside the environment itself, this is the only place that the truncation signal is issued.
-    Critically, this is different from the `terminated` signal that originates from the underlying environment as part of the MDP.
-    """
-
-    def __init__(
-        self,
-        env: gym.Env,
-        max_episode_steps: int,
-    ):
-        """Initializes the :class:`TimeLimit` wrapper with an environment and the number of steps after which truncation will occur.
-
-        Args:
-            env: The environment to apply the wrapper
-            max_episode_steps: An optional max episode steps (if ``None``, ``env.spec.max_episode_steps`` is used)
-        """
-        gym.utils.RecordConstructorArgs.__init__(
-            self, max_episode_steps=max_episode_steps
-        )
-        gym.Wrapper.__init__(self, env)
-
-        self._max_episode_steps = max_episode_steps
-        self._elapsed_steps = None
-
-    def step(self, action):
-        """Steps through the environment and if the number of steps elapsed exceeds ``max_episode_steps`` then truncate.
-
-        Args:
-            action: The environment step action
-
-        Returns:
-            The environment step ``(observation, reward, terminated, truncated, info)`` with `truncated=True`
-            if the number of steps elapsed >= max episode steps
-
-        """
-        observation, reward, terminated, truncated, info = self.env.step(action)
-        self._elapsed_steps += 1
-
-        if self._elapsed_steps >= self._max_episode_steps:
-            truncated = True
-
-        return observation, reward, terminated, truncated, info
-
-    def reset(self, **kwargs):
-        """Resets the environment with :param:`**kwargs` and sets the number of steps elapsed to zero.
-
-        Args:
-            **kwargs: The kwargs to reset the environment with
-
-        Returns:
-            The reset environment
-        """
-        self._elapsed_steps = 0
-        return self.env.reset(**kwargs)
-
-    @property
-    def spec(self):
-        """Modifies the environment spec to include the `max_episode_steps=self._max_episode_steps`."""
-        if self._cached_spec is not None:
-            return self._cached_spec
-
-        env_spec = self.env.spec
-        if env_spec is not None:
-            env_spec = deepcopy(env_spec)
-            env_spec.max_episode_steps = self._max_episode_steps
-
-        self._cached_spec = env_spec
-        return env_spec
-
-
 class AtariWrapper(gym.Wrapper):
     """
     Atari 2600 preprocessings
@@ -332,20 +313,20 @@ class AtariWrapper(gym.Wrapper):
     def __init__(
         self,
         env: gym.Env,
-        max_episode_steps: int = 5000,
         noop_max: int = 30,
+        max_pool: bool = True,
+        frame_skip: int = 4,
         terminal_on_life_loss: bool = True,
         clip_reward: bool = True,
         action_repeat_probability: float = 0.0,
     ) -> None:
-        env = TimeLimit(
-            env,
-            max_episode_steps,  # type: ignore[attr-defined]
-        )
         if action_repeat_probability > 0.0:
             env = StickyActionEnv(env, action_repeat_probability)
         if noop_max > 0:
             env = NoopResetEnv(env, noop_max=noop_max)
+        # frame_skip=1 is the same as no frame-skip (action repeat)
+        if frame_skip > 1:
+            env = MaxAndSkipEnv(env, skip=frame_skip, max_pool=max_pool)
         if terminal_on_life_loss:
             env = EpisodicLifeEnv(env)
         if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]

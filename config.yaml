@@ -1,6 +1,6 @@
 environment:
   number: &num_envs 8 # Number of parallel environments
-  game_name: "ALE/Breakout-v5" # Environment name
+  game_name: "BreakoutNoFrameskip-v4" # Environment name
   seed: 7
 
 encoder:
