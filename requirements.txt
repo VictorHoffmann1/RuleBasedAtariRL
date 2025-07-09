@@ -1,5 +1,4 @@
 gymnasium
-gym[atari,accept-rom-license] == 0.25.2
 torch
 torchvision
 opencv-python

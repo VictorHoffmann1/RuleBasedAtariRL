@@ -8,7 +8,7 @@ from components.policies.gnn import CustomGNNPolicy
 from components.policies.relational_network import CustomRelationalNetworkPolicy
 
 
-def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extension=""):
+def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=""):
     """
     Get agent mappings configuration for different agent types.
 
@@ -22,10 +22,11 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
         Agent mapping with encoder, policy, and other configurations
     """
     rb_encoder = {
-        "BreakoutNoFrameskip-v4": BreakoutEncoder,
-        "PongNoFrameskip-v4": PongEncoder,
+        "Breakout": BreakoutEncoder,
+        "Pong": PongEncoder,
     }
 
+    game_name = "Breakout" if "Breakout" in game_id else "Pong"
     model_extension = f"_{model_extension}" if model_extension else ""
 
     if key == "player+ball":
@@ -42,7 +43,7 @@ def get_agent_mapping(key, config, n_envs, game_name, model_name, model_extensio
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
-    if key == "player-ball":
+    elif key == "player-ball":
         agent_mapping = {
             "encoder": rb_encoder[game_name](
                 encoding_method="paddle-ball",
