@@ -1,6 +1,6 @@
 environment:
   number: &num_envs 8 # Number of parallel environments
-  game_name: "BreakoutNoFrameskip-v4" # Environment name
+  game_name: "BreakoutNoFrameskip-v4" # Only use NoFrameskip versions
   seed: 7
 
 encoder:
@@ -14,7 +14,7 @@ model:
   name: "PPO" # Model name (PPO or A2C)
 
   # Global parameters
-  learning_rate: 0.0007 # Ignored if linear_scheduler is true
+  learning_rate: 0.001 # Ignored if linear_scheduler is true
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 
@@ -25,9 +25,8 @@ model:
   vf_coef: 0.5
   max_grad_norm: 0.5
   ppo_batch_size: 128 # PPO Only
-  n_epochs: 8 # PPO Only
-  clip_range: 0.3 # PPO Only, decaying linearly to 0.0
-
+  n_epochs: 5 # PPO Only
+  clip_range: 0.4 # PPO Only, decaying linearly to 0.0
 
 training:
   num_steps: 10000000 # Number of episodes to train

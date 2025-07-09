@@ -53,8 +53,11 @@ def optuna_search(args):
             env = OCAtariEncoderWrapper(
                 env,
                 config["encoder"]["max_objects"],
+                method=agent_mapping["method"],
                 num_envs=n_envs,
                 speed_scale=config["encoder"]["speed_scale"],
+                use_rgb=config["encoder"]["use_rgb"],
+                use_category=config["encoder"]["use_category"],
             )
         # Set up TensorBoard log directory
         log_dir = "./logs/"
@@ -67,12 +70,13 @@ def optuna_search(args):
 
         # Sample hyperparameters
         n_steps = trial.suggest_categorical("n_steps", [128, 256, 512, 1024, 2048])
-        ent_coef = trial.suggest_float("ent_coef", 1e-4, 0.1, log=True)
+        ent_coef = trial.suggest_float("ent_coef", 1e-4, 0.05, log=True)
         clip_range = trial.suggest_float("clip_range", 0.05, 0.5)
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-3)
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
         n_epochs = trial.suggest_categorical("n_epochs", [4, 5, 8, 10])
         gae_lambda = trial.suggest_float("gae_lambda", 0.9, 0.99)
+        
 
         stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=3, min_evals=0, verbose=1)
         eval_callback = EvalCallback(env, eval_freq=max(100000 // n_envs, 1), callback_after_eval=stop_train_callback, verbose=1)
@@ -118,7 +122,7 @@ def optuna_search(args):
             )
 
         model.learn(
-            total_timesteps=config["training"]["num_steps"],
+            total_timesteps=1000000,
             tb_log_name=agent_mapping["name"],
             callback=eval_callback,
         )

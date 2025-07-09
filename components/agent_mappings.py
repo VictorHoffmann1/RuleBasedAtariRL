@@ -22,7 +22,7 @@ def get_agent_mapping(key, game_name, model_name, model_extension=""):
         Agent mapping with encoder, policy, and other configurations
     """
     model_extension = f"_{model_extension}" if model_extension else ""
-    game_name = game_name[4:-3]
+    game_name = game_name[:-14] # Only use NoFrameskip versions
 
     if key == "transformer":
         agent_mapping = {
