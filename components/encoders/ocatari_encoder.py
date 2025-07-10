@@ -33,6 +33,11 @@ class OCAtariEncoder:
         self.use_rgb = use_rgb
         self.use_category = use_category
 
+        self.normed_width = RunningNormalizer()
+        self.normed_height = RunningNormalizer()
+        self.normed_dx = RunningNormalizer()
+        self.normed_dy = RunningNormalizer()
+
         assert self.method in ["discovery", "expert"], (
             f"Method must be 'discovery' or 'expert', got {self.method}."
         )
@@ -67,18 +72,20 @@ class OCAtariEncoder:
                             [
                                 self.normalize(object.center[0], self.img_width, True),
                                 self.normalize(object.center[1], self.img_height, True),
-                                self.normalize(object.dx, self.speed_scale, False),
-                                self.normalize(object.dy, self.speed_scale, False),
-                                self.normalize(object.w, self.img_width, False),
-                                self.normalize(object.h, self.img_height, False),
+                                self.normed_dx(object.dx),
+                                self.normed_dy(object.dy),
+                                self.normed_width(object.w),
+                                self.normed_height(object.h),
                             ]
                         )
                         if self.use_rgb:
                             rgb = object.rgb
                             rgb_vector = np.array(
-                                self.normalize(rgb[0], 255, False),
-                                self.normalize(rgb[1], 255, False),
-                                self.normalize(rgb[2], 255, False),
+                                [
+                                    self.normalize(rgb[0], 255, True),
+                                    self.normalize(rgb[1], 255, True),
+                                    self.normalize(rgb[2], 255, True),
+                                ]
                             )
                             object_vector = np.concatenate((object_vector, rgb_vector))
                         if self.use_category:
@@ -112,8 +119,8 @@ class OCAtariEncoder:
                         features[2] = self.normalize(
                             object.center[1], self.img_height, True
                         )
-                        features[3] = self.normalize(object.dx, self.speed_scale, False)
-                        features[4] = self.normalize(object.dy, self.speed_scale, False)
+                        features[3] = self.normed_dx(object.dx)
+                        features[4] = self.normed_dy(object.dy)
 
             batch_features.append(features)
 
@@ -155,3 +162,32 @@ class OCAtariEncoder:
             return np.clip(2 * (value / scale) - 1, -1, 1) if scale != 0 else 0
         else:
             return np.clip(value / scale, -1, 1) if scale != 0 else 0
+
+
+class RunningNormalizer:
+    """A simple running normalizer for a feature."""
+
+    def __init__(self, epsilon: float = 1e-8):
+        self.sum = 0.0
+        self.count = 0
+        self.sum_squared = 0.0
+        self.epsilon = epsilon  # Small value to avoid division by zero
+
+    def __call__(self, x: float):
+        """Normalize a single value."""
+        self.sum += x
+        self.count += 1
+        self.sum_squared += x**2
+        return np.clip((x - self.mean()) / (self.std() + self.epsilon), -10, 10)
+
+    def mean(self):
+        """Return the mean of the feature."""
+        return self.sum / self.count if self.count > 0 else 0.0
+
+    def std(self):
+        """Return the standard deviation of the feature."""
+        if self.count > 1:
+            return np.sqrt(
+                (self.sum_squared - (self.sum**2) / self.count) / (self.count - 1)
+            )
+        return 0.0

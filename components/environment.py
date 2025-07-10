@@ -3,37 +3,8 @@ import os
 from typing import Any, Callable, Optional, Union, Type, Dict
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv
-from components.wrappers import AtariWrapper
+from components.wrappers import OCAtariWrapper
 from ocatari.core import OCAtari
-
-
-def unwrap_wrapper(
-    env: gym.Env, wrapper_class: Type[gym.Wrapper]
-) -> Optional[gym.Wrapper]:
-    """
-    Retrieve a ``VecEnvWrapper`` object by recursively searching.
-
-    :param env: Environment to unwrap
-    :param wrapper_class: Wrapper to look for
-    :return: Environment unwrapped till ``wrapper_class`` if it has been wrapped with it
-    """
-    env_tmp = env
-    while isinstance(env_tmp, gym.Wrapper):
-        if isinstance(env_tmp, wrapper_class):
-            return env_tmp
-        env_tmp = env_tmp.env
-    return None
-
-
-def is_wrapped(env: gym.Env, wrapper_class: Type[gym.Wrapper]) -> bool:
-    """
-    Check if a given environment has been wrapped with a given wrapper.
-
-    :param env: Environment to check
-    :param wrapper_class: Wrapper class to look for
-    :return: True if environment has been wrapped with ``wrapper_class``.
-    """
-    return unwrap_wrapper(env, wrapper_class) is not None
 
 
 def make_ocatari_vec_env(
@@ -159,7 +130,7 @@ def make_oc_atari_env(
         monitor_dir=monitor_dir,
         env_kwargs=env_kwargs,
         vec_env_cls=vec_env_cls,
-        wrapper_class=AtariWrapper,
+        wrapper_class=OCAtariWrapper,
         vec_env_kwargs=vec_env_kwargs,
         monitor_kwargs=monitor_kwargs,
         wrapper_kwargs=wrapper_kwargs,

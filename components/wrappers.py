@@ -282,7 +282,7 @@ class EpisodicLifeEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
         return obs, info
 
 
-class AtariWrapper(gym.Wrapper):
+class OCAtariWrapper(gym.Wrapper):
     """
     Atari 2600 preprocessings
 
