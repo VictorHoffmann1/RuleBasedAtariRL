@@ -97,9 +97,9 @@ def train(args):
             agent_mapping["policy"],
             env,
             verbose=2,
-            learning_rate=exponential_scheduler(
+            learning_rate=linear_scheduler(
                 model_params["learning_rate"],
-                1e-5,
+                0,
                 # model_params["learning_rate"]
                 # * (1 - config["training"]["num_steps"] / 1e7),
             )

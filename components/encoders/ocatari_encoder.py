@@ -110,14 +110,14 @@ class OCAtariEncoder:
                 for object in objects:
                     if object.category == "Player":
                         features[0] = self.normalize(
-                            object.center[0], self.img_width, True
+                            object.x, self.img_width, True
                         )
                     elif object.category == "Ball":
                         features[1] = self.normalize(
-                            object.center[0], self.img_width, True
+                            object.x, self.img_width, True
                         )
                         features[2] = self.normalize(
-                            object.center[1], self.img_height, True
+                            object.y, self.img_height, True
                         )
                         features[3] = self.normed_dx(object.dx)
                         features[4] = self.normed_dy(object.dy)
