@@ -128,6 +128,26 @@ class BreakoutEncoder:
                     ]
                 )
 
+            elif self.method == "paddle+ball+trajectory":
+                    features = np.array(
+                    [
+                        player_x, # Absolute paddle position
+                        self.ball_x[i], # Absolute ball x
+                        self.ball_y[i], # Absolute ball y
+                        self.ball_dx[i] * self.speed_scale,
+                        self.ball_dy[i] * self.speed_scale,
+                        self.ball_x[i] - player_x, # Relative ball x
+                        self.ball_y[i] - self.player_y, # Relative ball y
+                        self.ball_x[i] + self.ball_dx[i], # ball position x in 1 step
+                        self.ball_y[i] + self.ball_dy[i],  # ball position y in 1 step
+                        self.ball_x[i] + 2 * self.ball_dx[i], # ball position x in 2 steps
+                        self.ball_y[i] + 2 * self.ball_dy[i],  #  ball position y in 2 steps
+                        self.ball_x[i] + 3 * self.ball_dx[i], # ball position x in 3 steps
+                        self.ball_y[i] + 3 * self.ball_dy[i],  # ball position y in 3 steps
+                    ]
+                )
+
+
             # Brick detection
             elif "bricks" in self.method:
                 # Extract the bricks zone from the frame

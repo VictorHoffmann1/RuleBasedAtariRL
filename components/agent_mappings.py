@@ -71,6 +71,21 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
             "n_stack": None,
             "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
         }
+    elif key == "player+ball+trajectory":
+        agent_mapping = {
+            "encoder": rb_encoder[game_name](
+                encoding_method="paddle+ball+trajectory",
+                speed_scale=config["encoder"]["speed_scale"],
+                num_envs=n_envs,
+            ),
+            "n_features": 13,
+            "name": model_name + "_rb_player_ball_trajectory" + model_extension,
+            "policy": "MlpPolicy",
+            "use_feature_kwargs": False,
+            "n_stack": None,
+            "wrapper_kwargs": {"screen_size": -1, "max_pool": False},
+        }
+    
     elif key == "deepsets":
         agent_mapping = {
             "encoder": rb_encoder[game_name](
