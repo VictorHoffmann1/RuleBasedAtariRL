@@ -7,6 +7,7 @@ from stable_baselines3.common.vec_env import VecFrameStack
 import yaml
 import os
 import argparse
+import datetime
 
 
 def train(args):
@@ -105,8 +106,10 @@ def train(args):
         tb_log_name=agent_mapping["name"],
     )
 
-    # Save model
-    model.save(os.path.join(weights_dir, agent_mapping["name"]))
+    # Save model with unique filename to avoid overwriting
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_filename = f"{agent_mapping['name']}_{timestamp}"
+    model.save(os.path.join(weights_dir, model_filename))
     env.close()
 
 

@@ -47,6 +47,20 @@ class EncoderWrapper(VecEnvWrapper):
     def step_wait(self):
         obs, rewards, terminated, infos = self.venv.step_wait()
         encoded_obs = self.encoder(obs)
+        
+        # Encode terminal observations in info dicts if they exist
+        for i, info in enumerate(infos):
+            if "terminal_observation" in info:
+                # Extract the terminal observation and encode it
+                terminal_obs = info["terminal_observation"]
+                # Add batch dimension if needed for encoding
+                if terminal_obs.ndim == 3:  # Single observation
+                    terminal_obs_batch = np.expand_dims(terminal_obs, axis=0)
+                    encoded_terminal_obs = self.encoder(terminal_obs_batch)[0]
+                else:
+                    encoded_terminal_obs = self.encoder(terminal_obs)
+                info["terminal_observation"] = encoded_terminal_obs
+        
         return encoded_obs, rewards, terminated, infos
 
 
