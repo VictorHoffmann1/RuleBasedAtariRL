@@ -18,6 +18,9 @@ class TransformerEncoder(nn.Module):
             torch.zeros(1, 1, n_features)
         )  # Special token used as output representation
 
+        print(f"TransformerEncoder initialized with {n_features} features, "
+              f"{num_heads} heads, {num_layers} layers, and hidden dimension {hidden_dim}.")
+
     def forward(self, x):
         # x shape: [batch_size, seq_len, n_features]
         # Compute mask: True for valid, False for padding (all zeros)
@@ -59,8 +62,8 @@ class CustomTransformerPolicy(ActorCriticPolicy):
         lr_schedule,
         n_features=8,
         hidden_dim=64,
-        num_heads=1,
-        num_layers=1,
+        num_heads=4,
+        num_layers=2,
         **kwargs,
     ):
         super().__init__(
