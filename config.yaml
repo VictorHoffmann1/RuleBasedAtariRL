@@ -1,7 +1,7 @@
 environment:
   number: &num_envs 8 # Number of parallel environments
   game_name: "BreakoutNoFrameskip-v4" # Only use NoFrameskip versions
-  seed: 7
+  seed: 42
 
 encoder:
   speed_scale: 8.0

@@ -59,7 +59,6 @@ class RelationalNetwork(nn.Module):
         # Efficient self-mask computation
         self_mask = ij_idxs[..., 0] == ij_idxs[..., 1]  # (B, top_k)
 
-        # Extract features early to save memory
         x_feat = x[:, :, :6]  # Keep only first 6 features
 
         # Cached batch indices for efficiency
@@ -168,8 +167,9 @@ class TopKAttention(nn.Module):
         self.top_k = top_k
         self.scale = proj_dim**-0.5
 
-        # Fused QK projection for better efficiency
-        self.qk_proj = nn.Linear(input_dim, 2 * proj_dim)
+        self.Q = nn.Linear(input_dim, proj_dim)  # Query projection
+        self.K = nn.Linear(input_dim, proj_dim)  # Key projection
+
         self.verbose = verbose
         if verbose:
             self.count = 0
@@ -177,9 +177,8 @@ class TopKAttention(nn.Module):
     def forward(self, x, padding_mask=None):
         B, L, _ = x.shape
 
-        # Single projection, then split
-        qk = self.qk_proj(x)  # (B, L, 2*proj_dim)
-        Q, K = qk.chunk(2, dim=-1)  # Each (B, L, proj_dim)
+        Q = self.Q(x)  # (B, L, proj_dim)
+        K = self.K(x)  # (B, L, proj_dim)
 
         # Compute attention scores
         attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
