@@ -21,15 +21,13 @@ class TransformerEncoder(nn.Module):
         )  # Special token used as output representation
 
     def forward(self, x):
-        # x shape: [batch_size, seq_len, n_features]
-        # Compute mask: True for valid, False for padding (all zeros)
-        mask = x.abs().sum(dim=-1) == 0  # [batch_size, seq_len]
+        x, mask = self.trim(x)  # Remove zero-padded objects
         # Apply embedding layer
         x = self.embedding(x)
         # Transformer expects input shape: [seq_len, batch_size, n_features]
         x = x.permute(1, 0, 2)
         # Add cls_token to the beginning of the sequence
-        cls_tokens = self.embedding(self.cls_token).expand(-1, x.size(1), -1)
+        cls_tokens = self.cls_token.expand(-1, x.size(1), -1)
         x = torch.cat((cls_tokens, x), dim=0)
         # Add False mask for cls_token at the start of each sequence
         cls_mask = torch.zeros((mask.size(0), 1), dtype=torch.bool, device=mask.device)
@@ -38,6 +36,25 @@ class TransformerEncoder(nn.Module):
         x = self.transformer(x, src_key_padding_mask=mask)
         # Return the cls token output
         return x[0]  # Take the cls_token output (first token)
+
+    @staticmethod
+    def trim(x):
+        """
+        Remove trailing zero-padded objects from the input tensor.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (B, N, D) with zero-padded objects.
+
+        Returns:
+            torch.Tensor: Tensor with zero-padded objects trimmed, shape (B, max_valid_N, D).
+        """
+
+        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
+        max_valid = obj_padding_mask.sum(dim=1).max()
+
+        return x[:, :max_valid, :], obj_padding_mask[
+            :, :max_valid
+        ]  # Return trimmed tensor and mask
 
 
 class TransformerFeaturesExtractor(BaseFeaturesExtractor):

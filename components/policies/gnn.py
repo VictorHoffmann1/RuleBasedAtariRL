@@ -26,6 +26,7 @@ class GNN(nn.Module):
         x: Tensor of shape (batch_size, num_nodes, 8)
         Assumes last 3 dims are is_player, is_ball, is_brick and are NOT used for GNN input
         """
+        x, mask = self.trim(x)  # Remove zero-padded objects
         batch_size, num_nodes, feat_dim = x.shape
         device = x.device
 
@@ -117,6 +118,25 @@ class GNN(nn.Module):
         else:
             raise ValueError(f"Unsupported pooling: {self.pooling}")
         return out
+
+    @staticmethod
+    def trim(x):
+        """
+        Remove trailing zero-padded objects from the input tensor.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (B, N, D) with zero-padded objects.
+
+        Returns:
+            torch.Tensor: Tensor with zero-padded objects trimmed, shape (B, max_valid_N, D).
+        """
+
+        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
+        max_valid = obj_padding_mask.sum(dim=1).max()
+
+        return x[:, :max_valid, :], obj_padding_mask[
+            :, :max_valid
+        ]  # Return trimmed tensor and mask
 
 
 class GNNFeaturesExtractor(BaseFeaturesExtractor):

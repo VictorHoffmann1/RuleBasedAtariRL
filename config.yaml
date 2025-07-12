@@ -14,19 +14,19 @@ model:
   name: "PPO" # Model name (PPO or A2C)
 
   # Global parameters
-  learning_rate: 0.00025 # Ignored if linear_scheduler is true
+  learning_rate: 0.0008 # Ignored if linear_scheduler is true
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 
   # Actor-Critic parameters (A2C and PPO)
-  n_steps: 128
+  n_steps: 1048
   gae_lambda: 0.95
   ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
-  ppo_batch_size: 256 # PPO Only
-  n_epochs: 4 # PPO Only
-  clip_range: 0.1 # PPO Only, decaying linearly to 0.0
+  ppo_batch_size: 128 # PPO Only, Leave at 128
+  n_epochs: 5 # PPO Only
+  clip_range: 0.4 # PPO Only, decaying linearly to 0.0
 
 training:
   num_steps: 10000000 # Number of episodes to train
