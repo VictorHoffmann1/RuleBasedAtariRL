@@ -1,14 +1,10 @@
-from stable_baselines3 import A2C, PPO
+from stable_baselines3 import PPO
 from components.environment import make_oc_atari_env
 from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
-from components.schedulers import linear_scheduler, exponential_scheduler
+from components.schedulers import linear_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.env_util import make_atari_env
-from stable_baselines3.common.callbacks import (
-    EvalCallback,
-    StopTrainingOnNoModelImprovement,
-)
 from eval import eval
 import yaml
 import os
@@ -32,7 +28,41 @@ def optuna_search(args):
         args.agent, game_name, model_name, model_extension="optuna"
     )
 
-    def objective(trial):
+    # Early stopping configuration
+    early_stop_enabled = getattr(args, 'early_stop', True)
+    confidence_threshold = getattr(args, 'confidence_threshold', 0.9)  # 90% confidence
+    
+    def calculate_probability_exceed_best(current_rewards, best_value):
+        """
+        Calculate the probability that the current trial will exceed the best known value
+        using a simple statistical approach based on current performance.
+        """
+        if len(current_rewards) < 2:
+            return 1.0  # Not enough data, assume it could be good
+            
+        current_mean = np.mean(current_rewards)
+        current_std = np.std(current_rewards, ddof=1)
+        
+        if current_std == 0:
+            # No variance, use mean comparison
+            return 1.0 if current_mean > best_value else 0.0
+            
+        # Estimate the distribution and calculate probability
+        # Using normal approximation (central limit theorem)
+        z_score = (best_value - current_mean) / (current_std / np.sqrt(len(current_rewards)))
+        
+        # Probability that mean > best_value is 1 - CDF(z_score)
+        # Using approximation for normal CDF
+        if z_score > 6:
+            return 0.0
+        elif z_score < -6:
+            return 1.0
+        else:
+            # Normal CDF approximation
+            prob_exceed = 0.5 * (1 + np.tanh(z_score * np.sqrt(2/np.pi)))
+            return 1.0 - prob_exceed
+
+    def objective(trial, study):
         env_seeds = list(range(10))  # Use multiple seeds for robustness
         model_seeds = list(range(10, 20))  # Different seeds for model
 
@@ -48,6 +78,9 @@ def optuna_search(args):
             oc_atari_kwargs = {
                 "mode": "vision",
                 "hud": False,
+                "obs_mode": "ori",
+                "frameskip": 4,
+                "repeat_action_probability": 0.0,
             }
             env = make_oc_atari_env(
                 game_name,
@@ -83,20 +116,7 @@ def optuna_search(args):
         n_epochs = trial.suggest_categorical("n_epochs", [2, 4, 5, 8, 10])
         gae_lambda = trial.suggest_float("gae_lambda", 0.9, 0.99)
 
-        # stop_train_callback = StopTrainingOnNoModelImprovement(
-        #    max_no_improvement_evals=3, min_evals=0, verbose=1
-        # )
-        # eval_callback = EvalCallback(
-        #    env,
-        #    eval_freq=max(100000 // n_envs, 1),
-        #    callback_after_eval=stop_train_callback,
-        #    verbose=1,
-        # )
-
-        rewards = []
-
-        for env_seed, model_seed in zip(env_seeds, model_seeds):
-            model = PPO(
+        model = PPO(
                 agent_mapping["policy"],
                 env,
                 verbose=0,
@@ -116,9 +136,31 @@ def optuna_search(args):
                 ),
                 max_grad_norm=config["model"]["max_grad_norm"],
                 tensorboard_log=log_dir,
-                seed=model_seed,
+                seed=0,
             )
+
+        # stop_train_callback = StopTrainingOnNoModelImprovement(
+        #    max_no_improvement_evals=3, min_evals=0, verbose=1
+        # )
+        # eval_callback = EvalCallback(
+        #    env,
+        #    eval_freq=max(100000 // n_envs, 1),
+        #    callback_after_eval=stop_train_callback,
+        #    verbose=1,
+        # )
+
+        rewards = []
+
+        # Get current best value for early stopping
+        best_value = float('-inf') if len(study.trials) == 1 else study.best_value
+
+        for i, (env_seed, model_seed) in enumerate(zip(env_seeds, model_seeds)):
             model.set_random_seed(model_seed)
+            model.policy.reinitialize_weights()
+            model.policy.optimizer = model.policy.optimizer.__class__(
+                model.policy.parameters(), 
+                **model.policy.optimizer.defaults
+            )
             env.seed(env_seed)
             env.reset()
 
@@ -139,6 +181,14 @@ def optuna_search(args):
             print(f"Trial {trial.number}, Seed {env_seed}, Reward: {reward}")
 
             rewards.append(reward)
+            
+            # Early stopping check
+            if (early_stop_enabled and
+                len(study.trials) > 0):  # Only if we have previous trials to compare
+                prob_exceed = calculate_probability_exceed_best(rewards, best_value)
+                if prob_exceed < (1 - confidence_threshold):
+                    print(f"Early stopping after {i+1} seeds (low probability of improvement)")
+                    break
 
         # Use percentiles for more accurate quartile calculation
         q25 = np.percentile(rewards, 25)
@@ -150,7 +200,12 @@ def optuna_search(args):
 
     # Run the optimization
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=40, n_jobs=2)
+    
+    # Create a wrapper for the objective function that has access to the study
+    def objective_with_study(trial):
+        return objective(trial, study)
+    
+    study.optimize(objective_with_study, n_trials=40, n_jobs=1)
 
     # Best hyperparameters
     print("-" * 30)
@@ -173,6 +228,23 @@ if __name__ == "__main__":
         default="player+ball",
         required=True,
         help="The agent type to test.",
+    )
+    parser.add_argument(
+        "--early_stop",
+        action="store_true",
+        help="Enable early stopping based on statistical confidence.",
+    )
+    parser.add_argument(
+        "--min_seeds",
+        type=int,
+        default=3,
+        help="Minimum number of seeds to evaluate before considering early stopping.",
+    )
+    parser.add_argument(
+        "--confidence_threshold",
+        type=float,
+        default=0.9,
+        help="Confidence threshold for early stopping (0.9 = 90% confidence).",
     )
     args = parser.parse_args()
     optuna_search(args)
