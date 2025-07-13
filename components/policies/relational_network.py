@@ -45,6 +45,15 @@ class RelationalNetwork(nn.Module):
 
         self.hidden_dim = hidden_dim
 
+        self.init_weights()
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=torch.sqrt(torch.tensor(2.0)))
+                if m.bias is not None:
+                    torch.nn.init.zeros_(m.bias)
+
     def forward(self, x):
         B, N, D = x.shape  # x: (batch_size, num_objects, input_dim)
         obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
@@ -119,6 +128,7 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
         top_k=16,
         **kwargs,
     ):
+        kwargs["ortho_init"] = True
         super().__init__(
             observation_space,
             action_space,
@@ -191,12 +201,11 @@ class TopKAttention(nn.Module):
         row_idx = topk_idx // L
         col_idx = topk_idx % L
         topk_indices = torch.stack([row_idx, col_idx], dim=-1)  # (B, top_k, 2)
-        if self.count % 1000 == 0:
-            for i in range(10):
-                print(
-                    f"Top-10 Pairs: {topk_indices[0, i, 0].item()} -> {topk_indices[0, i, 1].item()} with weight {topk_weights[0][i].item():.2f}"
-                )
-            print(f"Num Objects : {L}")
-        self.count += 1
+        # if self.count % 1000 == 0:
+        #    for i in range(10):
+        #        print(
+        #            f"Top-10 Pairs: {topk_indices[0, i, 0].item()} -> {topk_indices[0, i, 1].item()} with weight {topk_weights[0][i].item():.2f}"
+        #        )
+        # self.count += 1
 
         return topk_indices, topk_weights

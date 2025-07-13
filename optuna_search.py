@@ -5,12 +5,16 @@ from components.agent_mappings import get_agent_mapping
 from components.schedulers import linear_scheduler, exponential_scheduler
 from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.env_util import make_atari_env
-from stable_baselines3.common.callbacks import  EvalCallback, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.callbacks import (
+    EvalCallback,
+    StopTrainingOnNoModelImprovement,
+)
 from eval import eval
 import yaml
 import os
 import argparse
 import optuna
+import numpy as np
 
 
 def optuna_search(args):
@@ -19,22 +23,24 @@ def optuna_search(args):
         config = yaml.safe_load(f)
 
     game_name = config["environment"]["game_name"]
-    seed = config["environment"]["seed"]
+
     model_name = config["model"]["name"]
     n_envs = config["environment"]["number"]
 
     # Get agent mappings configuration
-    agent_mapping = get_agent_mapping(args.agent, 
-                                      game_name, 
-                                      model_name, 
-                                      model_extension="optuna")
+    agent_mapping = get_agent_mapping(
+        args.agent, game_name, model_name, model_extension="optuna"
+    )
 
     def objective(trial):
+        env_seeds = list(range(10))  # Use multiple seeds for robustness
+        model_seeds = list(range(10, 20))  # Different seeds for model
+
         if args.agent == "cnn":
             env = make_atari_env(
                 game_name,
                 n_envs=n_envs,
-                seed=seed,
+                seed=0,
             )
             # Stack frames to encode temporal information
             env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
@@ -46,7 +52,7 @@ def optuna_search(args):
             env = make_oc_atari_env(
                 game_name,
                 n_envs=n_envs,
-                seed=seed,
+                seed=0,
                 env_kwargs=oc_atari_kwargs,
             )
         if agent_mapping["encoder"]:
@@ -70,34 +76,26 @@ def optuna_search(args):
 
         # Sample hyperparameters
         n_steps = trial.suggest_categorical("n_steps", [128, 256, 512, 1024, 2048])
-        ent_coef = trial.suggest_float("ent_coef", 1e-4, 0.05, log=True)
+        ent_coef = trial.suggest_float("ent_coef", 1e-6, 1e-2, log=True)
         clip_range = trial.suggest_float("clip_range", 0.05, 0.5)
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-3)
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
-        n_epochs = trial.suggest_categorical("n_epochs", [4, 5, 8, 10])
+        n_epochs = trial.suggest_categorical("n_epochs", [2, 4, 5, 8, 10])
         gae_lambda = trial.suggest_float("gae_lambda", 0.9, 0.99)
-        
 
-        stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=3, min_evals=0, verbose=1)
-        eval_callback = EvalCallback(env, eval_freq=max(100000 // n_envs, 1), callback_after_eval=stop_train_callback, verbose=1)
+        # stop_train_callback = StopTrainingOnNoModelImprovement(
+        #    max_no_improvement_evals=3, min_evals=0, verbose=1
+        # )
+        # eval_callback = EvalCallback(
+        #    env,
+        #    eval_freq=max(100000 // n_envs, 1),
+        #    callback_after_eval=stop_train_callback,
+        #    verbose=1,
+        # )
 
-        if model_name == "A2C":
-            model = A2C(
-                agent_mapping["policy"],
-                env,
-                verbose=0,
-                learning_rate=learning_rate["learning_rate"],
-                n_steps=n_steps,
-                gamma=config["model"]["gamma"],
-                gae_lambda=config["model"]["gae_lambda"],
-                ent_coef=ent_coef,
-                vf_coef=config["model"]["vf_coef"],
-                max_grad_norm=config["model"]["max_grad_norm"],
-                tensorboard_log=log_dir,
-                seed=seed,
-            )
+        rewards = []
 
-        elif model_name == "PPO":
+        for env_seed, model_seed in zip(env_seeds, model_seeds):
             model = PPO(
                 agent_mapping["policy"],
                 env,
@@ -118,32 +116,47 @@ def optuna_search(args):
                 ),
                 max_grad_norm=config["model"]["max_grad_norm"],
                 tensorboard_log=log_dir,
-                seed=seed,
+                seed=model_seed,
+            )
+            model.set_random_seed(model_seed)
+            env.seed(env_seed)
+            env.reset()
+
+            model.learn(
+                total_timesteps=100000,
+                tb_log_name=agent_mapping["name"],
+                # callback=eval_callback,
             )
 
-        model.learn(
-            total_timesteps=1000000,
-            tb_log_name=agent_mapping["name"],
-            callback=eval_callback,
-        )
+            # Evaluate the model
+            reward, _ = eval(
+                model=model,
+                agent=args.agent,
+                deterministic=True,
+                n_seeds=20,
+                verbose=False,
+            )
+            print(f"Trial {trial.number}, Seed {env_seed}, Reward: {reward}")
 
-        # Evaluate the model
-        mean_reward, _ = eval(
-            model=model,
-            agent=args.agent,
-            deterministic=True,
-            n_seeds=20,
-            verbose=False,
-        )
+            rewards.append(reward)
 
-        return mean_reward
+        # Use percentiles for more accurate quartile calculation
+        q25 = np.percentile(rewards, 25)
+        q75 = np.percentile(rewards, 75)
+        inter_quartile_rewards = [r for r in rewards if q25 <= r <= q75]
+        inter_quartile_mean = np.mean(inter_quartile_rewards)
+
+        return inter_quartile_mean
 
     # Run the optimization
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=40, n_jobs=1)
+    study.optimize(objective, n_trials=40, n_jobs=2)
 
     # Best hyperparameters
-    print("Best trial:")
+    print("-" * 30)
+    print("HYPERPARAMETER TUNING FINSIHED")
+    print("-" * 30)
+    print("BEST TRIAL:")
     print(study.best_trial)
 
     # Best hyperparameters

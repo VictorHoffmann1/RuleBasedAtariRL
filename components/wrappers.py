@@ -218,8 +218,9 @@ class ClipRewardEnv(gym.RewardWrapper):
     :param env: Environment to wrap
     """
 
-    def __init__(self, env: gym.Env) -> None:
+    def __init__(self, env: gym.Env, scale) -> None:
         super().__init__(env)
+        self.scale = scale
 
     def reward(self, reward: SupportsFloat) -> float:
         """
@@ -228,7 +229,7 @@ class ClipRewardEnv(gym.RewardWrapper):
         :param reward:
         :return:
         """
-        return np.sign(float(reward))
+        return self.scale * np.sign(float(reward))
 
 
 class EpisodicLifeEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
@@ -331,7 +332,7 @@ class OCAtariWrapper(gym.Wrapper):
             env = EpisodicLifeEnv(env)
         if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]
             env = FireResetEnv(env)
-        if clip_reward:
-            env = ClipRewardEnv(env)
+        # if clip_reward:
+        #    env = ClipRewardEnv(env, 10.0)
 
         super().__init__(env)

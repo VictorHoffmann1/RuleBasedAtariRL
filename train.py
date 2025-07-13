@@ -3,6 +3,7 @@ from components.environment import make_oc_atari_env
 from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
 from components.schedulers import linear_scheduler, exponential_scheduler
+from components.vec_normalizer import VecNormalize
 from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.env_util import make_atari_env
 from stable_baselines3.common.env_checker import check_env
@@ -43,6 +44,8 @@ def train(args):
             "mode": "vision",
             "hud": False,
             "obs_mode": "ori",
+            "frameskip": 4,
+            "repeat_action_probability": 0.0,
         }
         env = make_oc_atari_env(
             game_name,
@@ -59,6 +62,11 @@ def train(args):
             speed_scale=config["encoder"]["speed_scale"],
             use_rgb=config["encoder"]["use_rgb"],
             use_category=config["encoder"]["use_category"],
+        )
+        env = VecNormalize(
+            env,
+            norm_obs=False,
+            norm_reward=True,
         )
 
     # Check if the environment is valid
@@ -100,9 +108,8 @@ def train(args):
             verbose=2,
             learning_rate=linear_scheduler(
                 model_params["learning_rate"],
-                0,
-                # model_params["learning_rate"]
-                # * (1 - config["training"]["num_steps"] / 1e7),
+                model_params["learning_rate"]
+                * (1 - config["training"]["num_steps"] / 1e7),
             )
             if model_params["scheduler"]
             else model_params["learning_rate"],

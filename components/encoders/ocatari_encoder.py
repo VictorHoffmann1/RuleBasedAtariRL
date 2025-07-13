@@ -36,9 +36,6 @@ class OCAtariEncoder:
         # Single normalizer for all dynamic features: dx, dy, width, height
         self.feature_normalizer = RunningNormalizer(num_vars=4)  # dx, dy, width, height
 
-        # environment cache
-        self.env_cache = {}
-
         assert self.method in ["discovery", "expert"], (
             f"Method must be 'discovery' or 'expert', got {self.method}."
         )
@@ -187,69 +184,38 @@ class RunningNormalizer:
         """Normalize single value or array of values for multiple variables."""
         x = np.asarray(x)
 
-        # Handle single variable case (backward compatibility)
-        if self.num_vars == 1:
-            if x.ndim == 0:  # Single scalar
-                x = np.array([x])
+        if x.ndim == 0:  # Single scalar for all variables
+            x = np.full(self.num_vars, x)
+        elif x.size != self.num_vars:
+            raise ValueError(f"Expected {self.num_vars} values, got {x.size}")
 
-            # Update running statistics
-            self.sum += np.sum(x)
-            self.count += x.size
-            self.sum_squared += np.sum(x**2)
+        x = x.reshape(self.num_vars)
 
-            # Normalize the values
-            mean_val = self.mean()
-            std_val = self.std()
-            normalized = (x - mean_val) / (std_val + self.epsilon)
+        # Update running statistics for each variable
+        self.sum += x
+        self.count += 1
+        self.sum_squared += x**2
 
-            result = np.clip(normalized, -10, 10)
-            return result[0] if result.size == 1 else result
+        # Normalize each variable
+        mean_vals = self.mean()
+        std_vals = self.std()
+        normalized = (x - mean_vals) / (std_vals + self.epsilon)
 
-        # Handle multiple variables case
-        else:
-            if x.ndim == 0:  # Single scalar for all variables
-                x = np.full(self.num_vars, x)
-            elif x.size != self.num_vars:
-                raise ValueError(f"Expected {self.num_vars} values, got {x.size}")
-
-            x = x.reshape(self.num_vars)
-
-            # Update running statistics for each variable
-            self.sum += x
-            self.count += 1
-            self.sum_squared += x**2
-
-            # Normalize each variable
-            mean_vals = self.mean()
-            std_vals = self.std()
-            normalized = (x - mean_vals) / (std_vals + self.epsilon)
-
-            return np.clip(normalized, -10, 10)
+        return np.clip(normalized, -10, 10)
 
     def mean(self):
         """Return the mean of each variable."""
-        if self.num_vars == 1:
-            return self.sum[0] / self.count[0] if self.count[0] > 0 else 0.0
-        else:
-            return np.where(self.count > 0, self.sum / self.count, 0.0)
+        return np.where(self.count > 0, self.sum / self.count, 0.0)
 
     def std(self):
         """Return the standard deviation of each variable."""
-        if self.num_vars == 1:
-            if self.count[0] > 1:
-                return np.sqrt(
-                    (self.sum_squared[0] - (self.sum[0] ** 2) / self.count[0])
-                    / (self.count[0] - 1)
-                )
-            return 0.0
-        else:
-            valid_mask = self.count > 1
-            std_vals = np.zeros(self.num_vars)
-            std_vals[valid_mask] = np.sqrt(
-                (
-                    self.sum_squared[valid_mask]
-                    - (self.sum[valid_mask] ** 2) / self.count[valid_mask]
-                )
-                / (self.count[valid_mask] - 1)
+        valid_mask = self.count > 1
+        std_vals = np.zeros(self.num_vars)
+        std_vals[valid_mask] = np.sqrt(
+            (
+                self.sum_squared[valid_mask]
+                - (self.sum[valid_mask] ** 2) / self.count[valid_mask]
             )
-            return std_vals
+            / (self.count[valid_mask] - 1)
+        )
+        return std_vals
