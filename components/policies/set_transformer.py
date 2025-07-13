@@ -30,28 +30,8 @@ class SetTransformer(nn.Module):
         )
 
     def forward(self, X):
-        X, mask = self.trim(X)  # Remove zero-padded objects
         output = self.dec(self.enc(X)).squeeze(1)
         return output
-
-    @staticmethod
-    def trim(x):
-        """
-        Remove trailing zero-padded objects from the input tensor.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, N, D) with zero-padded objects.
-
-        Returns:
-            torch.Tensor: Tensor with zero-padded objects trimmed, shape (B, max_valid_N, D).
-        """
-
-        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
-        max_valid = obj_padding_mask.sum(dim=1).max()
-
-        return x[:, :max_valid, :], obj_padding_mask[
-            :, :max_valid
-        ]  # Return trimmed tensor and mask
 
 
 class SetTransformerFeaturesExtractor(BaseFeaturesExtractor):

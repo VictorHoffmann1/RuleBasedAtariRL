@@ -44,7 +44,7 @@ class SelfAttentionDeepSetsEncoder(nn.Module):
         )
 
     def forward(self, x):
-        x, mask = self.trim(x)  # Remove zero-padded objects
+        mask = x.abs().sum(dim=-1) != 0  # [batch_size, num_objects]
         # Apply φ to each object
         x = self.phi(x)
 
@@ -92,25 +92,6 @@ class SelfAttentionDeepSetsEncoder(nn.Module):
         # Global MLP
         x = self.rho(x)  # shape: [batch_size, output_dim]
         return x
-
-    @staticmethod
-    def trim(x):
-        """
-        Remove trailing zero-padded objects from the input tensor.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, N, D) with zero-padded objects.
-
-        Returns:
-            torch.Tensor: Tensor with zero-padded objects trimmed, shape (B, max_valid_N, D).
-        """
-
-        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
-        max_valid = obj_padding_mask.sum(dim=1).max()
-
-        return x[:, :max_valid, :], obj_padding_mask[
-            :, :max_valid
-        ]  # Return trimmed tensor and mask
 
 
 class SelfAttentionDeepSetsFeaturesExtractor(BaseFeaturesExtractor):

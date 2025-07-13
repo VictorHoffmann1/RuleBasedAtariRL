@@ -6,125 +6,101 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 
 
 class RelationalNetwork(nn.Module):
-    def __init__(
-        self,
-        input_dim,
-        hidden_dim=128,
-        output_dim=64,
-        top_k=16,
-    ):
+    def __init__(self, input_dim, hidden_dim=128, output_dim=64, top_k=64):
         super().__init__()
-        # Self-Interaction MLP - optimized version
+        # Self-Interaction MLP
         self.phi = nn.Sequential(
             nn.Linear(6, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
 
-        # Pairwise interaction MLP (excluding self-interaction) - optimized
+        # Pairwise interaction MLP (excluding self-interaction)
         self.xi = nn.Sequential(
             nn.Linear(2 * 6, hidden_dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
 
-        # Use optimized attention
+        # Top-K attention mechanism to select important interactions
         self.top_k_attention = TopKAttention(
-            input_dim=input_dim,
-            proj_dim=hidden_dim,
-            top_k=top_k,
+            input_dim=input_dim,  # Input dimension for attention
+            proj_dim=hidden_dim,  # Projection dimension for attention
+            top_k=top_k,  # Number of top interactions to select
         )
         self.top_k = top_k
 
-        # Global MLP after pooling - optimized
+        # Global MLP after pooling
         self.rho = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, output_dim),
+            nn.Linear(
+                hidden_dim,
+                hidden_dim,
+            ),
+            nn.ReLU(),
+            nn.Linear(
+                hidden_dim,  # Output dimension of the global MLP
+                output_dim,
+            ),
         )
 
         self.hidden_dim = hidden_dim
 
-        # Pre-allocate for efficiency
-        self.register_buffer("_batch_arange", torch.empty(1, dtype=torch.long))
-        self._last_batch_size = 0
-
     def forward(self, x):
-        x, obj_padding_mask = self.trim(x)  # Remove zero-padded objects
-        B = x.shape[0]  # Get batch size
+        B, N, D = x.shape  # x: (batch_size, num_objects, input_dim)
+        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
 
-        # Get top-k interactions
-        ij_idxs, ij_weights = self.top_k_attention(x, padding_mask=obj_padding_mask)
-
-        # Efficient self-mask computation
+        # Get top-k interactions using attention
+        ij_idxs, ij_weights = self.top_k_attention(
+            x, padding_mask=obj_padding_mask
+        )  # (B, top_k, 2), (B, top_k)
         self_mask = ij_idxs[..., 0] == ij_idxs[..., 1]  # (B, top_k)
 
-        x_feat = x[:, :, :6]  # Keep only first 6 features
+        # Remove from categorical / rgb features from x since they are not meant to be used in pairwise/self-interactions
+        # They only exist for the attention head to identify the objects
 
-        # Cached batch indices for efficiency
-        if B != self._last_batch_size:
-            self._batch_arange = (
-                torch.arange(B, device=x.device).unsqueeze(1).expand(-1, self.top_k)
-            )
-            self._last_batch_size = B
+        x = x[:, :, :6]  # Keep only the first 6 features (e.g., position, speed, size)
 
-        batch_indices = self._batch_arange[:B]
+        # Batch indices for advanced indexing
+        batch_indices = (
+            torch.arange(B, device=x.device).unsqueeze(1).expand(-1, self.top_k)
+        )  # (B, top_k)
 
-        # Vectorized indexing
-        i_idx, j_idx = ij_idxs[..., 0], ij_idxs[..., 1]
-        x_i = x_feat[batch_indices, i_idx]  # (B, top_k, 6)
-        x_j = x_feat[batch_indices, j_idx]  # (B, top_k, 6)
+        # Index object vectors
+        i_idx = ij_idxs[..., 0]  # (B, top_k)
+        j_idx = ij_idxs[..., 1]  # (B, top_k)
 
-        # Parallel feature computation
+        x_i = x[batch_indices, i_idx]  # (B, top_k, D)
+        x_j = x[batch_indices, j_idx]  # (B, top_k, D)
+
+        # Self and non-self masks
+        self_mask_exp = self_mask.unsqueeze(-1)  # (B, top_k, 1)
+
+        # Prepare self interaction features
         feat_self = self.phi(x_i)  # (B, top_k, H)
-        feat_pair = self.xi(torch.cat([x_i, x_j], dim=-1))  # (B, top_k, H)
 
-        # Efficient conditional selection
+        # Prepare pairwise interaction features
+        x_pair = torch.cat([x_i, x_j], dim=-1)  # (B, top_k, 2D)
+        feat_nonself = self.xi(x_pair)  # (B, top_k, H)
+
+        # Merge features based on mask
         interaction_feat = torch.where(
-            self_mask.unsqueeze(-1), feat_self, feat_pair
+            self_mask_exp, feat_self, feat_nonself
         )  # (B, top_k, H)
 
-        # Optimized weighted pooling
-        pooled = torch.sum(interaction_feat * ij_weights.unsqueeze(-1), dim=1)  # (B, H)
+        # Weighted pooling
+        ij_weights = ij_weights.unsqueeze(-1)  # (B, top_k, 1)
+        pooled_interactions = (interaction_feat * ij_weights).sum(dim=1)  # (B, H)
 
-        # Final MLP
-        return self.rho(pooled)  # (B, output_dim)
-
-    @staticmethod
-    def trim(x):
-        """
-        Remove trailing zero-padded objects from the input tensor.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, N, D) with zero-padded objects.
-
-        Returns:
-            torch.Tensor: Tensor with zero-padded objects trimmed, shape (B, max_valid_N, D).
-        """
-
-        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
-        max_valid = obj_padding_mask.sum(dim=1).max()
-
-        return x[:, :max_valid, :], obj_padding_mask[
-            :, :max_valid
-        ]  # Return trimmed tensor and mask
+        # Global MLP
+        out = self.rho(pooled_interactions)  # (B, output_dim)
+        return out
 
 
 class RelationalNetworkFeaturesExtractor(BaseFeaturesExtractor):
-    def __init__(
-        self,
-        observation_space,
-        n_features,
-        hidden_dim,
-        output_dim,
-        top_k,
-    ):
+    def __init__(self, observation_space, n_features, hidden_dim, output_dim, top_k):
         super().__init__(observation_space, features_dim=output_dim)
         self.relational_network_encoder = RelationalNetwork(
-            n_features,
-            hidden_dim,
-            output_dim,
-            top_k,
+            n_features, hidden_dim, output_dim, top_k
         )
 
     def forward(self, observations):
@@ -159,56 +135,68 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
 
 
 class TopKAttention(nn.Module):
-    def __init__(self, input_dim, proj_dim, top_k, verbose=True):
+    def __init__(self, input_dim, proj_dim, top_k):
         """
-        Optimized TopK attention with improved efficiency
+        Args:
+            input_dim (int): Input feature dimension.
+            proj_dim (int): Projection dimension for query/key.
+            top_k (int): Number of top attention interactions to return.
         """
         super().__init__()
         self.top_k = top_k
-        self.scale = proj_dim**-0.5
+        self.scale = proj_dim**0.5
 
-        self.Q = nn.Linear(input_dim, proj_dim)  # Query projection
-        self.K = nn.Linear(input_dim, proj_dim)  # Key projection
+        self.query_proj = nn.Linear(input_dim, proj_dim)
+        self.key_proj = nn.Linear(input_dim, proj_dim)
 
-        self.verbose = verbose
-        if verbose:
-            self.count = 0
+        self.count = 0
 
     def forward(self, x, padding_mask=None):
+        """
+        Args:
+            x: Tensor of shape (B, L, D)
+            padding_mask: BoolTensor of shape (B, L), True = keep, False = pad
+        Returns:
+            topk_indices: LongTensor of shape (B, top_k, 2), with (-1, -1) for invalid slots
+        """
         B, L, _ = x.shape
+        device = x.device
 
-        Q = self.Q(x)  # (B, L, proj_dim)
-        K = self.K(x)  # (B, L, proj_dim)
+        Q = self.query_proj(x)  # (B, L, proj_dim)
+        K = self.key_proj(x)  # (B, L, proj_dim)
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / self.scale  # (B, L, L)
 
-        # Compute attention scores
-        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+        # Build full mask (True = valid, False = invalid)
+        full_mask = torch.ones((B, L, L), dtype=torch.bool, device=device)
 
-        # Efficient masking
         if padding_mask is not None:
-            # Create 2D mask efficiently
-            mask_2d = padding_mask.unsqueeze(2) & padding_mask.unsqueeze(1)
-            attn_scores.masked_fill_(~mask_2d, float("-inf"))
+            padding_mask = padding_mask.bool()
+            full_mask &= padding_mask.unsqueeze(2)  # row
+            full_mask &= padding_mask.unsqueeze(1)  # column
 
-        # Flatten and get top-k
+        # Flatten (B, L, L) to (B, L*L)
         attn_scores_flat = attn_scores.view(B, -1)
+        full_mask_flat = full_mask.view(B, -1)
+
+        # Set invalid scores to -inf
+        attn_scores_flat = attn_scores_flat.masked_fill(~full_mask_flat, float("-inf"))
+
+        # Get top-k across all (valid) entries
         topk_vals, topk_idx = torch.topk(
             attn_scores_flat, self.top_k, dim=-1, largest=True
         )
-        topk_weights = F.softmax(topk_vals, dim=-1)
+        topk_weights = torch.softmax(topk_vals, dim=-1)  # (B, top_k)
 
-        # Convert indices efficiently
+        # Convert flat indices to (i, j)
         row_idx = topk_idx // L
         col_idx = topk_idx % L
-        topk_indices = torch.stack([row_idx, col_idx], dim=-1)
-
-        if self.verbose:
-            if self.count % 1000 == 0:  # Print every 1000 calls
-                print("Top-10 Pairs:")
-                for i in range(10):
-                    print(
-                        f"{topk_indices[0, i, 0].item()} -> {topk_indices[0, i, 1].item()} with weight {topk_weights[0][i].item():.2f}"
-                    )
-                print(f"Number of objects: {L}")
+        topk_indices = torch.stack([row_idx, col_idx], dim=-1)  # (B, top_k, 2)
+        if self.count % 1000 == 0:
+            for i in range(10):
+                print(
+                    f"Top-10 Pairs: {topk_indices[0, i, 0].item()} -> {topk_indices[0, i, 1].item()} with weight {topk_weights[0][i].item():.2f}"
+                )
+            print(f"Num Objects : {L}")
         self.count += 1
 
         return topk_indices, topk_weights

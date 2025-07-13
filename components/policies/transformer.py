@@ -21,7 +21,7 @@ class TransformerEncoder(nn.Module):
         )  # Special token used as output representation
 
     def forward(self, x):
-        x, mask = self.trim(x)  # Remove zero-padded objects
+        mask = x.abs().sum(dim=-1) != 0  # [batch_size, num_objects]
         # Apply embedding layer
         x = self.embedding(x)
         # Transformer expects input shape: [seq_len, batch_size, n_features]
@@ -36,25 +36,6 @@ class TransformerEncoder(nn.Module):
         x = self.transformer(x, src_key_padding_mask=mask)
         # Return the cls token output
         return x[0]  # Take the cls_token output (first token)
-
-    @staticmethod
-    def trim(x):
-        """
-        Remove trailing zero-padded objects from the input tensor.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, N, D) with zero-padded objects.
-
-        Returns:
-            torch.Tensor: Tensor with zero-padded objects trimmed, shape (B, max_valid_N, D).
-        """
-
-        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
-        max_valid = obj_padding_mask.sum(dim=1).max()
-
-        return x[:, :max_valid, :], obj_padding_mask[
-            :, :max_valid
-        ]  # Return trimmed tensor and mask
 
 
 class TransformerFeaturesExtractor(BaseFeaturesExtractor):
