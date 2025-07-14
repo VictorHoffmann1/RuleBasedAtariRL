@@ -28,10 +28,9 @@ def eval(
         config = yaml.safe_load(f)
 
     game_name = config["environment"]["game_name"]
-    model_name = config["model"]["name"]
     model_path = "./weights"
 
-    agent_mapping = get_agent_mapping(agent, game_name, model_name, model_extension)
+    agent_mapping = get_agent_mapping(agent, game_name, model_extension)
     wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
 
     if agent == "cnn":
@@ -48,6 +47,8 @@ def eval(
             "mode": "vision",
             "hud": False,
             "obs_mode": "ori",
+            "frameskip": 4,
+            "repeat_action_probability": 0.0,
         }
         env = make_oc_atari_env(
             game_name,
@@ -71,29 +72,15 @@ def eval(
         if agent == "naive":
             model = NaiveAgent()
         else:
-            # Load model
-            if model_name == "A2C":
-                model = A2C.load(
-                    os.path.join(model_path, agent_mapping["name"]),
-                    env=env,
-                    seed=0,
-                    custom_objects={
-                        "observation_space": env.observation_space,
-                        "action_space": env.action_space,
-                    },
-                )
-            elif model_name == "PPO":
-                model = PPO.load(
-                    os.path.join(model_path, agent_mapping["name"]),
-                    env=env,
-                    seed=0,
-                    custom_objects={
-                        "observation_space": env.observation_space,
-                        "action_space": env.action_space,
-                    },
-                )
-            else:
-                raise ValueError(f"Model {model_name} not implemented.")
+            model = PPO.load(
+                os.path.join(model_path, agent_mapping["name"]),
+                env=env,
+                seed=0,
+                custom_objects={
+                    "observation_space": env.observation_space,
+                    "action_space": env.action_space,
+                },
+            )
 
     seeds = list(range(n_seeds))  # Use a range of seeds for evaluation
     total_rewards = []

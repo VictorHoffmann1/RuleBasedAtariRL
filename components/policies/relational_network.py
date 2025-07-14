@@ -146,13 +146,15 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
     def reinitialize_weights(self):
         """Reinitialize all weights in the policy network"""
         # Reinitialize the relational network encoder
-        if hasattr(self.features_extractor, 'relational_network_encoder'):
+        if hasattr(self.features_extractor, "relational_network_encoder"):
             self.features_extractor.relational_network_encoder.init_weights()
-        
+
         # Reinitialize all linear layers in the policy
         for module in self.modules():
             if isinstance(module, torch.nn.Linear):
-                torch.nn.init.orthogonal_(module.weight, gain=torch.sqrt(torch.tensor(2.0)))
+                torch.nn.init.orthogonal_(
+                    module.weight, gain=torch.sqrt(torch.tensor(2.0))
+                )
                 if module.bias is not None:
                     torch.nn.init.zeros_(module.bias)
 

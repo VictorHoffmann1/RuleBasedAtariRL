@@ -4,33 +4,50 @@ from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
 from components.schedulers import linear_scheduler, exponential_scheduler
 from components.vec_normalizer import VecNormalize
-from stable_baselines3.common.vec_env import VecFrameStack
+from stable_baselines3.common.vec_env import VecFrameStack, SubprocVecEnv
 from stable_baselines3.common.env_util import make_atari_env
 from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.callbacks import EvalCallback
 import yaml
 import os
 import argparse
 import datetime
+import torch
+import multiprocessing as mp
 
 
-def train(args):
-    # Load configuration
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+# Optimize CPU performance - dynamic thread allocation
+def set_optimal_threads():
+    cpu_cores = mp.cpu_count()
+    # For high-core systems, allow more threads but prevent oversubscription
+    # Rule: max threads = cpu_cores // 2 for vectorized environments
+    optimal_threads = max(1, min(cpu_cores // 2, cpu_cores - 2))
 
-    n_envs = config["environment"]["number"]
-    game_name = config["environment"]["game_name"]
-    seed = config["environment"]["seed"]
-    model_name = config["model"]["name"]
-    n_features = 6
-    if config["encoder"]["use_rgb"]:
-        n_features += 3
-    if config["encoder"]["use_category"]:
-        n_features += 3
+    # Override if environment variable is set
+    if "TORCH_NUM_THREADS" in os.environ:
+        optimal_threads = int(os.environ["TORCH_NUM_THREADS"])
 
-    # Get agent mappings configuration
-    agent_mapping = get_agent_mapping(args.agent, game_name, model_name)
+    print(f"Setting {optimal_threads} threads for {cpu_cores} CPU cores")
+    return optimal_threads
 
+
+optimal_threads = set_optimal_threads()
+torch.set_num_threads(optimal_threads)
+os.environ["OMP_NUM_THREADS"] = str(optimal_threads)
+os.environ["MKL_NUM_THREADS"] = str(optimal_threads)
+
+
+def get_optimal_env_count(config_envs):
+    """Determine optimal number of environments based on CPU cores"""
+    cpu_cores = mp.cpu_count()
+    # Use config value or scale with CPU cores, whichever is smaller
+    optimal_envs = min(config_envs, max(4, cpu_cores // 2))
+    print(f"CPU cores: {cpu_cores}, Using {optimal_envs} environments")
+    return optimal_envs
+
+
+def create_env(args, config, agent_mapping, n_envs, game_name, seed):
+    """Create environment with given parameters"""
     if args.agent == "cnn":
         env = make_atari_env(
             game_name,
@@ -68,6 +85,31 @@ def train(args):
             norm_obs=False,
             norm_reward=True,
         )
+    return env
+
+
+def train(args):
+    # Load configuration
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    n_envs = get_optimal_env_count(config["environment"]["number"])
+    game_name = config["environment"]["game_name"]
+    seed = config["environment"]["seed"]
+    n_features = 6
+    if config["encoder"]["use_rgb"]:
+        n_features += 3
+    if config["encoder"]["use_category"]:
+        n_features += 3
+
+    # Get agent mappings configuration
+    agent_mapping = get_agent_mapping(args.agent, game_name)
+
+    # Create training environment
+    env = create_env(args, config, agent_mapping, n_envs, game_name, seed)
+
+    # Create evaluation environment with different seed
+    eval_env = create_env(args, config, agent_mapping, n_envs, game_name, seed + 1000)
 
     # Check if the environment is valid
     for environment in env.envs:
@@ -85,59 +127,55 @@ def train(args):
     # Initialize the model
     model_params = config["model"]
 
-    if model_name == "A2C":
-        model = A2C(
-            agent_mapping["policy"],
-            env,
-            verbose=2,
-            learning_rate=model_params["learning_rate"],
-            n_steps=model_params["n_steps"],
-            gamma=model_params["gamma"],
-            gae_lambda=model_params["gae_lambda"],
-            ent_coef=model_params["ent_coef"],
-            vf_coef=model_params["vf_coef"],
-            max_grad_norm=model_params["max_grad_norm"],
-            tensorboard_log=log_dir,
-            seed=seed,
-        )
+    eval_callback = EvalCallback(
+        eval_env,
+        eval_freq=max(100000 // n_envs, 1),
+        verbose=1,
+    )
 
-    elif model_name == "PPO":
-        model = PPO(
-            agent_mapping["policy"],
-            env,
-            verbose=2,
-            learning_rate=linear_scheduler(
-                model_params["learning_rate"],
-                model_params["learning_rate"]
-                * (1 - config["training"]["num_steps"] / 1e7),
-            )
-            if model_params["scheduler"]
-            else model_params["learning_rate"],
-            batch_size=model_params["ppo_batch_size"],
-            n_epochs=model_params["n_epochs"],
-            n_steps=model_params["n_steps"],
-            gamma=model_params["gamma"],
-            gae_lambda=model_params["gae_lambda"],
-            ent_coef=model_params["ent_coef"],
-            vf_coef=model_params["vf_coef"],
-            clip_range=linear_scheduler(
-                model_params["clip_range"],
-                model_params["clip_range"]
-                * (1 - config["training"]["num_steps"] / 1e7),
-            )
-            if model_params["scheduler"]
-            else model_params["clip_range"],
-            max_grad_norm=model_params["max_grad_norm"],
-            tensorboard_log=log_dir,
-            seed=seed,
-            policy_kwargs={"n_features": n_features}
-            if agent_mapping["use_feature_kwargs"]
-            else {},
+    print("Training configuration:")
+    print(f"  - Environments: {n_envs}")
+    print(f"  - Batch size: {model_params['ppo_batch_size']}")
+    print(f"  - Steps per rollout: {model_params['n_steps']}")
+    print(f"  - Total rollout size: {n_envs * model_params['n_steps']}")
+    print(f"  - PyTorch threads: {torch.get_num_threads()}")
+
+    model = PPO(
+        agent_mapping["policy"],
+        env,
+        verbose=2,
+        learning_rate=linear_scheduler(
+            model_params["learning_rate"],
+            model_params["learning_rate"] * (1 - config["training"]["num_steps"] / 1e7),
         )
+        if model_params["scheduler"]
+        else model_params["learning_rate"],
+        batch_size=model_params["ppo_batch_size"],
+        n_epochs=model_params["n_epochs"],
+        n_steps=model_params["n_steps"],
+        gamma=model_params["gamma"],
+        gae_lambda=model_params["gae_lambda"],
+        ent_coef=model_params["ent_coef"],
+        vf_coef=model_params["vf_coef"],
+        clip_range=linear_scheduler(
+            model_params["clip_range"],
+            model_params["clip_range"] * (1 - config["training"]["num_steps"] / 1e7),
+        )
+        if model_params["scheduler"]
+        else model_params["clip_range"],
+        max_grad_norm=model_params["max_grad_norm"],
+        tensorboard_log=log_dir,
+        seed=seed + 500,  # Different seed for model
+        policy_kwargs={"n_features": n_features}
+        if agent_mapping["use_feature_kwargs"]
+        else {},
+    )
 
     model.learn(
         total_timesteps=config["training"]["num_steps"],
+        callback=eval_callback,
         tb_log_name=agent_mapping["name"],
+        progress_bar=True,
     )
 
     # Save model with unique filename to avoid overwriting
@@ -145,6 +183,7 @@ def train(args):
     model_filename = f"{agent_mapping['name']}_{timestamp}"
     model.save(os.path.join(weights_dir, model_filename))
     env.close()
+    eval_env.close()
 
 
 if __name__ == "__main__":

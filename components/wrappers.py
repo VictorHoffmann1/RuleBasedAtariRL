@@ -321,12 +321,12 @@ class OCAtariWrapper(gym.Wrapper):
         clip_reward: bool = True,
         action_repeat_probability: float = 0.0,
     ) -> None:
-        #if action_repeat_probability > 0.0:
+        # if action_repeat_probability > 0.0:
         #    env = StickyActionEnv(env, action_repeat_probability)
         if noop_max > 0:
             env = NoopResetEnv(env, noop_max=noop_max)
         # frame_skip=1 is the same as no frame-skip (action repeat)
-        #if frame_skip > 1:
+        # if frame_skip > 1:
         #    env = MaxAndSkipEnv(env, skip=frame_skip, max_pool=max_pool)
         if terminal_on_life_loss:
             env = EpisodicLifeEnv(env)

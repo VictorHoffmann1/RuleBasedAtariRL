@@ -1,7 +1,7 @@
 environment:
-  number: &num_envs 8 # Number of parallel environments
+  number: &num_envs 16 # Number of parallel environments (increase based on CPU cores)
   game_name: "ALE/Breakout-v5" # Only use NoFrameskip versions
-  seed: 42
+  seed: 1
 
 encoder:
   speed_scale: 8.0
@@ -11,10 +11,8 @@ encoder:
   use_category: false # Use object categories (paddle, ball, etc.) in the encoding
 
 model:
-  name: "PPO" # Model name (PPO or A2C)
-
   # Global parameters
-  learning_rate: 0.0008
+  learning_rate: 0.001
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 
@@ -24,7 +22,7 @@ model:
   ent_coef: 0.02
   vf_coef: 0.5
   max_grad_norm: 0.5
-  ppo_batch_size: 128
+  ppo_batch_size: 512
   n_epochs: 8
   clip_range: 0.2
 

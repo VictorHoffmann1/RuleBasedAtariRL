@@ -30,12 +30,9 @@ def test(args):
 
     game_name = config["environment"]["game_name"]
     seed = args.seed
-    model_name = config["model"]["name"]
-
     agent_mapping = get_agent_mapping(
         args.agent,
         game_name=game_name,
-        model_name=model_name,
         model_extension=args.model,
     )
     wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
@@ -54,6 +51,8 @@ def test(args):
             "mode": "vision",
             "hud": False,
             "obs_mode": "ori",
+            "frameskip": 4,
+            "repeat_action_probability": 0.0,
         }
         env = make_oc_atari_env(
             game_name,
@@ -76,29 +75,15 @@ def test(args):
     if args.agent == "naive":
         model = NaiveAgent()
     else:
-        # Load model
-        if model_name == "A2C":
-            model = A2C.load(
-                os.path.join(model_path, agent_mapping["name"]),
-                env=env,
-                seed=seed,
-                custom_objects={
-                    "observation_space": env.observation_space,
-                    "action_space": env.action_space,
-                },
-            )
-        elif model_name == "PPO":
-            model = PPO.load(
-                os.path.join(model_path, agent_mapping["name"]),
-                env=env,
-                seed=seed,
-                custom_objects={
-                    "observation_space": env.observation_space,
-                    "action_space": env.action_space,
-                },
-            )
-        else:
-            raise ValueError(f"Model {model_name} not implemented.")
+        model = PPO.load(
+            os.path.join(model_path, agent_mapping["name"]),
+            env=env,
+            seed=seed,
+            custom_objects={
+                "observation_space": env.observation_space,
+                "action_space": env.action_space,
+            },
+        )
 
     model.set_random_seed(seed)
     env.seed(seed)
