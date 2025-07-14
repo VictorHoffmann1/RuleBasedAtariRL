@@ -82,7 +82,7 @@ def create_env(args, config, agent_mapping, n_envs, game_name, seed):
         )
         env = VecNormalize(
             env,
-            norm_obs=False,
+            norm_obs=True,
             norm_reward=True,
         )
     return env

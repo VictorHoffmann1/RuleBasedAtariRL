@@ -1,7 +1,35 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.policies import ActorCriticPolicy
+
+
+class CustomTransformer(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward=2048):
+        """Custom Transformer Encoder with no Layer Norm, no Dropout and no Residual connections"""
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=0.0)
+
+        # Feedforward layers
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.activation = F.relu
+
+    def forward(self, src, src_mask=None, src_key_padding_mask=None, is_causal=False):
+        # Self-attention block
+        src, _ = self.self_attn(
+            src,
+            src,
+            src,
+            attn_mask=src_mask,
+            key_padding_mask=src_key_padding_mask,
+            is_causal=is_causal,
+        )
+        # Feedforward block
+        src = self.linear2(self.activation(self.linear1(src)))
+        return src
 
 
 class TransformerEncoder(nn.Module):
@@ -12,9 +40,7 @@ class TransformerEncoder(nn.Module):
         self.num_layers = num_layers
 
         self.embedding = nn.Linear(n_features, hidden_dim)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=num_heads, norm_first=True
-        )
+        encoder_layer = CustomTransformer(d_model=hidden_dim, nhead=num_heads)
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.cls_token = nn.Parameter(
             torch.randn(1, 1, hidden_dim)
