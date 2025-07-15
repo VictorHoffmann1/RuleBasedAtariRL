@@ -4,10 +4,10 @@ from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
 from components.schedulers import linear_scheduler, exponential_scheduler
 from components.vec_normalizer import VecNormalize
+from components.callbacks import CustomEvalCallback
 from stable_baselines3.common.vec_env import VecFrameStack, SubprocVecEnv
 from stable_baselines3.common.env_util import make_atari_env
 from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.callbacks import EvalCallback
 import yaml
 import os
 import argparse
@@ -31,19 +31,20 @@ def set_optimal_threads():
     return optimal_threads
 
 
+
+def get_optimal_env_count():
+    """Determine optimal number of environments based on CPU cores"""
+    cpu_cores = mp.cpu_count()
+    # Use config value or scale with CPU cores, whichever is smaller
+    optimal_envs = max(4, cpu_cores // 2)
+    print(f"CPU cores: {cpu_cores}, Using {optimal_envs} environments")
+    return optimal_envs
+
+
 optimal_threads = set_optimal_threads()
 torch.set_num_threads(optimal_threads)
 os.environ["OMP_NUM_THREADS"] = str(optimal_threads)
 os.environ["MKL_NUM_THREADS"] = str(optimal_threads)
-
-
-def get_optimal_env_count(config_envs):
-    """Determine optimal number of environments based on CPU cores"""
-    cpu_cores = mp.cpu_count()
-    # Use config value or scale with CPU cores, whichever is smaller
-    optimal_envs = min(config_envs, max(4, cpu_cores // 2))
-    print(f"CPU cores: {cpu_cores}, Using {optimal_envs} environments")
-    return optimal_envs
 
 
 def create_env(args, config, agent_mapping, n_envs, game_name, seed):
@@ -80,11 +81,11 @@ def create_env(args, config, agent_mapping, n_envs, game_name, seed):
             use_rgb=config["encoder"]["use_rgb"],
             use_category=config["encoder"]["use_category"],
         )
-        env = VecNormalize(
-            env,
-            norm_obs=True,
-            norm_reward=True,
-        )
+        #env = VecNormalize(
+        #    env,
+        #    norm_obs=False,
+        #    norm_reward=True,
+        #)
     return env
 
 
@@ -93,7 +94,7 @@ def train(args):
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    n_envs = get_optimal_env_count(config["environment"]["number"])
+    n_envs = get_optimal_env_count() if config["environment"]["use_optimal_cores"] else config["environment"]["number"]
     game_name = config["environment"]["game_name"]
     seed = config["environment"]["seed"]
     n_features = 6
@@ -127,7 +128,7 @@ def train(args):
     # Initialize the model
     model_params = config["model"]
 
-    eval_callback = EvalCallback(
+    eval_callback = CustomEvalCallback(
         eval_env,
         eval_freq=max(100000 // n_envs, 1),
         verbose=1,
@@ -144,9 +145,10 @@ def train(args):
         agent_mapping["policy"],
         env,
         verbose=2,
-        learning_rate=linear_scheduler(
+        learning_rate=exponential_scheduler(
             model_params["learning_rate"],
-            model_params["learning_rate"] * (1 - config["training"]["num_steps"] / 1e7),
+            1e-5,
+            #model_params["learning_rate"] * (1 - config["training"]["num_steps"] / 1e7),
         )
         if model_params["scheduler"]
         else model_params["learning_rate"],

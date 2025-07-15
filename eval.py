@@ -5,7 +5,6 @@ from components.policies.naive_agent import NaiveAgent
 from components.agent_mappings import get_agent_mapping
 from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
 from stable_baselines3.common.env_util import make_atari_env
-
 import yaml
 import os
 import numpy as np
@@ -17,56 +16,59 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 def eval(
     model=None,
+    env=None,
     agent: str = "unknown",
     model_extension: str = "eval",
     n_seeds: int = 10,
     deterministic: bool = True,
     verbose: bool = False,
+    return_lists: bool = False,
 ):
-    # Load configuration
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    if env is None:
+        # Load configuration
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
 
-    game_name = config["environment"]["game_name"]
-    model_path = "./weights"
+        game_name = config["environment"]["game_name"]
+        model_path = "./weights"
 
-    agent_mapping = get_agent_mapping(agent, game_name, model_extension)
-    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
+        agent_mapping = get_agent_mapping(agent, game_name, model_extension)
+        wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
 
-    if agent == "cnn":
-        env = make_atari_env(
-            game_name,
-            n_envs=1,  # Single environment for evaluation
-            seed=0,  # Fixed seed for reproducibility
-            wrapper_kwargs=wrapper_kwargs,
-        )
-        env = VecTransposeImage(env)
-        env = VecFrameStack(env, n_stack=4)
-    else:
-        oc_atari_kwargs = {
-            "mode": "vision",
-            "hud": False,
-            "obs_mode": "ori",
-            "frameskip": 4,
-            "repeat_action_probability": 0.0,
-        }
-        env = make_oc_atari_env(
-            game_name,
-            n_envs=1,
-            seed=0,
-            env_kwargs=oc_atari_kwargs,
-            wrapper_kwargs=wrapper_kwargs,
-        )
-    if agent_mapping["encoder"]:
-        env = OCAtariEncoderWrapper(
-            env,
-            config["encoder"]["max_objects"],
-            num_envs=1,
-            method=agent_mapping["method"],
-            speed_scale=config["encoder"]["speed_scale"],
-            use_rgb=config["encoder"]["use_rgb"],
-            use_category=config["encoder"]["use_category"],
-        )
+        if agent == "cnn":
+            env = make_atari_env(
+                game_name,
+                n_envs=1,  # Single environment for evaluation
+                seed=0,  # Fixed seed for reproducibility
+                wrapper_kwargs=wrapper_kwargs,
+            )
+            env = VecTransposeImage(env)
+            env = VecFrameStack(env, n_stack=4)
+        else:
+            oc_atari_kwargs = {
+                "mode": "vision",
+                "hud": False,
+                "obs_mode": "ori",
+                "frameskip": 4,
+                "repeat_action_probability": 0.0,
+            }
+            env = make_oc_atari_env(
+                game_name,
+                n_envs=1,
+                seed=0,
+                env_kwargs=oc_atari_kwargs,
+                wrapper_kwargs=wrapper_kwargs,
+            )
+        if agent_mapping["encoder"]:
+            env = OCAtariEncoderWrapper(
+                env,
+                config["encoder"]["max_objects"],
+                num_envs=1,
+                method=agent_mapping["method"],
+                speed_scale=config["encoder"]["speed_scale"],
+                use_rgb=config["encoder"]["use_rgb"],
+                use_category=config["encoder"]["use_category"],
+            )
 
     if model is None:
         if agent == "naive":
@@ -84,6 +86,7 @@ def eval(
 
     seeds = list(range(n_seeds))  # Use a range of seeds for evaluation
     total_rewards = []
+    episode_lengths = []
     for seed in seeds:
         model.set_random_seed(seed)
         env.seed(seed)
@@ -130,15 +133,18 @@ def eval(
             print(f"Seed {seed}: Reward: {total_reward}. Steps: {step_count}")
         env.close()
         total_rewards.append(total_reward)
+        episode_lengths.append(step_count)
 
-    total_rewards = np.array(total_rewards)
-    avg_reward = np.mean(total_rewards)
-    std_reward = np.std(total_rewards)
+    rewards = np.array(total_rewards)
+    avg_reward = np.mean(rewards)
+    std_reward = np.std(rewards)
 
     if verbose:
         print(f"Average Reward over {len(seeds)} seeds: {avg_reward}")
         print(f"Standard Deviation: {std_reward}")
 
+    if return_lists:
+        return total_rewards, episode_lengths
     return avg_reward, std_reward
 
 

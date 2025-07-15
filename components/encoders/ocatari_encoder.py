@@ -30,6 +30,8 @@ class OCAtariEncoder:
         self.method = method
         self.use_rgb = use_rgb
         self.use_category = use_category
+        self.img_width = 160  # Default Atari image width
+        self.img_height = 210  # Default Atari image height
 
         # Add caching for object extraction to avoid repeated wrapper traversal
         self._env_ocatari_cache = {}
@@ -66,18 +68,22 @@ class OCAtariEncoder:
                             break
                         object_vector = np.array(
                             [
-                                object.x,
-                                object.y,
-                                object.dx,
-                                object.dy,
-                                object.w,
-                                object.h,
+                                self.normalize(object.center[0], self.img_width, True),
+                                self.normalize(object.center[1], self.img_height, True),
+                                self.normalize(object.dx, self.speed_scale, False),
+                                self.normalize(object.dy, self.speed_scale, False),
+                                self.normalize(object.w, self.img_width, False),
+                                self.normalize(object.h, self.img_height, False),
                             ]
                         )
                         if self.use_rgb:
-                            object_vector = np.concatenate(
-                                (object_vector, np.array(object.rgb))
-                            )
+                            rgb = object.rgb
+                            rgb_vector = np.array([
+                                self.normalize(rgb[0], 255, False),
+                                self.normalize(rgb[1], 255, False),
+                                self.normalize(rgb[2], 255, False),
+                            ])
+                            object_vector = np.concatenate((object_vector, rgb_vector))
                         if self.use_category:
                             category_vector = np.zeros(3)
                             if object.category == "Player":
@@ -100,13 +106,19 @@ class OCAtariEncoder:
                 player_found, ball_found = False, False
                 for object in objects:
                     if object.category == "Player":
-                        features[0] = self.normalize(object.x, self.img_width, True)
+                        features[0] = self.normalize(
+                            object.center[0], self.img_width, True
+                        )
                         player_found = True
                     elif object.category == "Ball":
-                        features[1] = object.x
-                        features[2] = object.y
-                        features[3] = object.dx
-                        features[4] = object.dy
+                        features[1] = self.normalize(
+                            object.center[0], self.img_width, True
+                        )
+                        features[2] = self.normalize(
+                            object.center[1], self.img_height, True
+                        )
+                        features[3] = self.normalize(object.dx, self.speed_scale, False)
+                        features[4] = self.normalize(object.dy, self.speed_scale, False)
                         ball_found = True
                     if player_found and ball_found:
                         break
@@ -144,3 +156,19 @@ class OCAtariEncoder:
 
         # If we can't find OCAtari, raise an error
         raise ValueError("No OCAtari environment found in the wrapper chain")
+    
+    
+    @staticmethod
+    def normalize(value, scale, centering=False):
+        """
+        Normalize a value to the range [-1, 1] based on a scale.
+
+        :param value: The value to normalize
+        :param scale: The scale for normalization
+        :param centering: If True, center the value around 0 before scaling
+        :return: Normalized value in the range [-1, 1]
+        """
+        if centering:
+            return np.clip(2 * (value / scale) - 1, -1, 1) if scale != 0 else 0
+        else:
+            return np.clip(value / scale, -1, 1) if scale != 0 else 0

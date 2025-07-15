@@ -107,7 +107,7 @@ def make_oc_atari_env(
     vec_env_cls: Optional[Union[Type[DummyVecEnv], Type[SubprocVecEnv]]] = None,
     vec_env_kwargs: Optional[Dict[str, Any]] = None,
     monitor_kwargs: Optional[Dict[str, Any]] = None,
-) -> OCAtari:
+) -> VecEnv:
     """
     Create a wrapped, monitored OCAtari environment.
 

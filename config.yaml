@@ -1,5 +1,6 @@
 environment:
-  number: &num_envs 16 # Number of parallel environments (increase based on CPU cores)
+  use_optimal_cores: false # Automatially changes n_envs based on CPU cores
+  number: &num_envs 8 # Number of parallel environments if use_optimal_cores is false
   game_name: "ALE/Breakout-v5" # Only use NoFrameskip versions
   seed: 7
 
@@ -7,23 +8,23 @@ encoder:
   speed_scale: 8.0
   num_envs: *num_envs
   max_objects: 32 # Maximum number of objects to encode for transformer / deepsets method
-  use_rgb: true # Use RGB colors of objects
+  use_rgb: false # Use RGB colors of objects
   use_category: false # Use object categories (paddle, ball, etc.) in the encoding
 
 model:
   # Global parameters
-  learning_rate: 0.0008  # Slightly reduced for more stable updates with more data
+  learning_rate: 0.001  # Slightly reduced for more stable updates with more data
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 
   # Actor-Critic parameters (A2C and PPO)
-  n_steps: 512
+  n_steps: 1024
   gae_lambda: 0.95
-  ent_coef: 0.01
+  ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
-  ppo_batch_size: 512  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
-  n_epochs: 4  # Reduced: with more data per rollout, fewer epochs needed
+  ppo_batch_size: 128  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
+  n_epochs: 5  # Reduced: with more data per rollout, fewer epochs needed
   clip_range: 0.4
 
 training:

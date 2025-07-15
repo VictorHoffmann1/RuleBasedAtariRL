@@ -28,7 +28,6 @@ class RelationalNetwork(nn.Module):
             proj_dim=hidden_dim,  # Projection dimension for attention
             top_k=top_k,  # Number of top interactions to select
         )
-        self.top_k = top_k
 
         # Global MLP after pooling
         self.rho = nn.Sequential(
@@ -46,11 +45,7 @@ class RelationalNetwork(nn.Module):
         self.hidden_dim = hidden_dim
 
         self.init_weights()
-
-        # Pre-allocate for efficiency
-        self.register_buffer("_batch_arange", torch.empty(1, dtype=torch.long))
-        self._last_batch_size = 0
-
+        
     def init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -60,22 +55,16 @@ class RelationalNetwork(nn.Module):
 
     def forward(self, x):
         x, obj_padding_mask = self.trim(x)  # Remove zero-padded objects
-        B = x.shape[0]  # Get batch size
+        B = x.shape[0]
 
         # Get top-k interactions
         ij_idxs, ij_weights = self.top_k_attention(x, padding_mask=obj_padding_mask)
 
+        top_k = ij_idxs.shape[1]  # Number of top-k interactions
+
         # Efficient self-mask computation
         self_mask = ij_idxs[..., 0] == ij_idxs[..., 1]  # (B, top_k)
-
-        # Cached batch indices for efficiency
-        if B != self._last_batch_size:
-            self._batch_arange = (
-                torch.arange(B, device=x.device).unsqueeze(1).expand(-1, self.top_k)
-            )
-            self._last_batch_size = B
-
-        batch_indices = self._batch_arange[:B]
+        batch_indices = torch.arange(B, device=x.device).unsqueeze(1).expand(-1, top_k)
 
         # Vectorized indexing
         i_idx, j_idx = ij_idxs[..., 0], ij_idxs[..., 1]
