@@ -1,11 +1,16 @@
 from stable_baselines3.common.callbacks import EventCallback, BaseCallback
-from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, sync_envs_normalization
+from stable_baselines3.common.vec_env import (
+    DummyVecEnv,
+    VecEnv,
+    sync_envs_normalization,
+)
 from eval import eval
 from typing import Any, Optional, Union
 import gymnasium as gym
 import numpy as np
 import warnings
 import os
+
 
 class CustomEvalCallback(EventCallback):
     """
@@ -84,7 +89,10 @@ class CustomEvalCallback(EventCallback):
     def _init_callback(self) -> None:
         # Does not work in some corner cases, where the wrapper is not the same
         if not isinstance(self.training_env, type(self.eval_env)):
-            warnings.warn("Training and eval env are not of the same type" f"{self.training_env} != {self.eval_env}")
+            warnings.warn(
+                "Training and eval env are not of the same type"
+                f"{self.training_env} != {self.eval_env}"
+            )
 
         # Create folders if needed
         if self.best_model_save_path is not None:
@@ -117,9 +125,9 @@ class CustomEvalCallback(EventCallback):
             episode_rewards, episode_lengths = eval(
                 model=self.model,
                 env=self.eval_env,
-                n_seeds=self.n_eval_episodes,
+                n_eval_episodes=self.n_eval_episodes,
                 deterministic=self.deterministic,
-                return_lists=True,
+                return_episode_rewards=True,
             )
 
             if self.log_path is not None:
@@ -144,11 +152,17 @@ class CustomEvalCallback(EventCallback):
                 )
 
             mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
-            mean_ep_length, std_ep_length = np.mean(episode_lengths), np.std(episode_lengths)
+            mean_ep_length, std_ep_length = (
+                np.mean(episode_lengths),
+                np.std(episode_lengths),
+            )
             self.last_mean_reward = float(mean_reward)
 
             if self.verbose >= 1:
-                print(f"Eval num_timesteps={self.num_timesteps}, " f"episode_reward={mean_reward:.2f} +/- {std_reward:.2f}")
+                print(
+                    f"Eval num_timesteps={self.num_timesteps}, "
+                    f"episode_reward={mean_reward:.2f} +/- {std_reward:.2f}"
+                )
                 print(f"Episode length: {mean_ep_length:.2f} +/- {std_ep_length:.2f}")
             # Add to current Logger
             self.logger.record("eval/mean_reward", float(mean_reward))
@@ -161,14 +175,18 @@ class CustomEvalCallback(EventCallback):
                 self.logger.record("eval/success_rate", success_rate)
 
             # Dump log so the evaluation results are printed with the correct timestep
-            self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
+            self.logger.record(
+                "time/total_timesteps", self.num_timesteps, exclude="tensorboard"
+            )
             self.logger.dump(self.num_timesteps)
 
             if mean_reward > self.best_mean_reward:
                 if self.verbose >= 1:
                     print("New best mean reward!")
                 if self.best_model_save_path is not None:
-                    self.model.save(os.path.join(self.best_model_save_path, "best_model"))
+                    self.model.save(
+                        os.path.join(self.best_model_save_path, "best_model")
+                    )
                 self.best_mean_reward = float(mean_reward)
                 # Trigger callback on new best model, if needed
                 if self.callback_on_new_best is not None:
@@ -188,7 +206,3 @@ class CustomEvalCallback(EventCallback):
         """
         if self.callback:
             self.callback.update_locals(locals_)
-
-
-
-    

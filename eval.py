@@ -3,7 +3,14 @@ from components.environment import make_oc_atari_env
 from components.wrappers import OCAtariEncoderWrapper
 from components.policies.naive_agent import NaiveAgent
 from components.agent_mappings import get_agent_mapping
-from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
+from stable_baselines3.common.vec_env import (
+    VecFrameStack,
+    VecTransposeImage,
+    DummyVecEnv,
+    VecEnv,
+    VecMonitor,
+    is_vecenv_wrapped,
+)
 from stable_baselines3.common.env_util import make_atari_env
 import yaml
 import os
@@ -19,134 +26,152 @@ def eval(
     env=None,
     agent: str = "unknown",
     model_extension: str = "eval",
-    n_seeds: int = 10,
+    n_eval_episodes: int = 10,
     deterministic: bool = True,
-    verbose: bool = False,
-    return_lists: bool = False,
+    callback=None,
+    reward_threshold: float = None,
+    return_episode_rewards: bool = False,
+    warn: bool = True,
 ):
-    n_envs = 1 if env is None else env.num_envs
-    if env is None:
+    if env is None or model is None:
         # Load configuration
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
+        n_envs = 1 if env is None else env.num_envs
+        agent_mapping = get_agent_mapping(
+            agent, config["environment"]["game_name"], model_extension
+        )
 
-        game_name = config["environment"]["game_name"]
-        model_path = "./weights"
-
-        agent_mapping = get_agent_mapping(agent, game_name, model_extension)
-        wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
-
-        if agent == "cnn":
-            env = make_atari_env(
-                game_name,
-                n_envs=n_envs,  # Single environment for evaluation
-                seed=0,  # Fixed seed for reproducibility
-                wrapper_kwargs=wrapper_kwargs,
-            )
-            env = VecTransposeImage(env)
-            env = VecFrameStack(env, n_stack=4)
-        else:
-            oc_atari_kwargs = {
-                "mode": "vision",
-                "hud": False,
-                "obs_mode": "ori",
-                "frameskip": 4,
-                "repeat_action_probability": 0.0,
-            }
-            env = make_oc_atari_env(
-                game_name,
-                n_envs=n_envs,
-                seed=0,
-                env_kwargs=oc_atari_kwargs,
-                wrapper_kwargs=wrapper_kwargs,
-            )
-        if agent_mapping["encoder"]:
-            env = OCAtariEncoderWrapper(
-                env,
-                config["encoder"]["max_objects"],
-                num_envs=n_envs,
-                method=agent_mapping["method"],
-                speed_scale=config["encoder"]["speed_scale"],
-                use_rgb=config["encoder"]["use_rgb"],
-                use_category=config["encoder"]["use_category"],
-            )
+    if env is None:
+        env = create_env(config, agent_mapping, model_extension, n_envs)
 
     if model is None:
-        if agent == "naive":
-            model = NaiveAgent()
-        else:
-            model = PPO.load(
-                os.path.join(model_path, agent_mapping["name"]),
-                env=env,
-                seed=0,
-                custom_objects={
-                    "observation_space": env.observation_space,
-                    "action_space": env.action_space,
-                },
-            )
+        model = create_model(agent_mapping, env)
 
-    seeds = list(range(n_seeds))  # Use a range of seeds for evaluation
-    total_rewards = []
+    is_monitor_wrapped = False
+    # Avoid circular import
+    from stable_baselines3.common.monitor import Monitor
+
+    if not isinstance(env, VecEnv):
+        env = DummyVecEnv([lambda: env])  # type: ignore[list-item, return-value]
+
+    is_monitor_wrapped = (
+        is_vecenv_wrapped(env, VecMonitor) or env.env_is_wrapped(Monitor)[0]
+    )
+
+    if not is_monitor_wrapped and warn:
+        warnings.warn(
+            "Evaluation environment is not wrapped with a ``Monitor`` wrapper. "
+            "This may result in reporting modified episode lengths and rewards, if other wrappers happen to modify these. "
+            "Consider wrapping environment first with ``Monitor`` wrapper.",
+            UserWarning,
+        )
+
+    n_envs = env.num_envs
+    episode_rewards = []
     episode_lengths = []
-    for seed in seeds:
-        model.set_random_seed(seed)
-        env.seed(seed)
-        env.reset()
 
-        done = [False]
+    episode_counts = np.zeros(n_envs, dtype="int")
+    # Divides episodes among different sub environments in the vector as evenly as possible
+    episode_count_targets = np.array(
+        [(n_eval_episodes + i) // n_envs for i in range(n_envs)], dtype="int"
+    )
 
-        total_reward = 0
-        step_count = 0
-        per_life_step = 0
-        # Get initial lives from info dict after first step
-        obs, reward, done, info = env.step([1] * n_envs)  # Force Fire action
-        if isinstance(info, list):
-            info = info[0]
-        lives = info.get("lives", None)
+    current_rewards = np.zeros(n_envs)
+    current_lengths = np.zeros(n_envs, dtype="int")
+    observations = env.reset()
+    states = None
+    episode_starts = np.ones((env.num_envs,), dtype=bool)
 
-        # Safety mechanisms to prevent infinite loops
-        max_steps = 10000  # Maximum steps per episode
-        max_steps_per_life = 2000  # Maximum steps per life
+    # Check if FIRE action is available (action 1)
+    has_fire_action = False
+    try:
+        action_meanings = env.unwrapped.get_action_meanings()
+        if len(action_meanings) > 1 and action_meanings[1] == "FIRE":
+            has_fire_action = True
+    except (AttributeError, IndexError):
+        # If the environment doesn't support get_action_meanings or doesn't have action 1
+        has_fire_action = False
+    while (episode_counts < episode_count_targets).any():
+        actions, states = model.predict(
+            observations,  # type: ignore[arg-type]
+            state=states,
+            episode_start=episode_starts,
+            deterministic=deterministic,
+        )
+        new_observations, rewards, dones, infos = env.step(actions)
+        current_rewards += rewards
+        current_lengths += 1
+        for i in range(n_envs):
+            if episode_counts[i] < episode_count_targets[i]:
+                # unpack values so that the callback can access the local variables
+                reward = rewards[i]
+                done = dones[i]
+                info = infos[i]
+                episode_starts[i] = done
 
-        while not done[0] and step_count < max_steps:
-            actions, _ = model.predict(obs, deterministic=deterministic)
-            obs, reward, done, info = env.step(actions)
-            step_count += 1
-            total_reward += reward[0]
-            per_life_step += 1
+                if callback is not None:
+                    callback(locals(), globals())
 
-            new_lives = info[0].get("lives", lives)
+                if dones[i]:
+                    # Check if this is a life loss (not true episode end) and FIRE action is available
+                    is_life_loss = False
+                    is_true_episode_end = False
 
-            # Check for life change
-            if new_lives < lives:
-                if agent != "cnn":  # Raises FrameStack error for CNN agent
-                    obs, _, _, info = env.step([1] * n_envs)  # Force Fire action
-                per_life_step = 0
-            elif per_life_step > max_steps_per_life:
-                # Safety: Force end if stuck on same life too long
-                if verbose:
-                    print(
-                        f"  Warning: Forced termination after {per_life_step} steps on life {lives}"
-                    )
-                break
-            lives = new_lives
-        if verbose:
-            print(f"Seed {seed}: Reward: {total_reward}. Steps: {step_count}")
-        env.close()
-        total_rewards.append(total_reward)
-        episode_lengths.append(step_count)
+                    if is_monitor_wrapped:
+                        if "episode" in info.keys():
+                            # This is a true episode end
+                            is_true_episode_end = True
+                        else:
+                            # This is likely a life loss, not a true episode end
+                            is_life_loss = True
+                    else:
+                        # For non-monitor wrapped envs, we treat all dones as true episode ends
+                        # unless we can detect otherwise from the info
+                        is_true_episode_end = True
 
-    rewards = np.array(total_rewards)
-    avg_reward = np.mean(rewards)
-    std_reward = np.std(rewards)
+                    # If agent loses a life and FIRE action is available, perform FIRE action
+                    if is_life_loss and has_fire_action:
+                        # Create actions array with FIRE action for the specific environment
+                        fire_actions = np.zeros(n_envs, dtype=int)
+                        fire_actions[i] = 1  # FIRE action
+                        fire_obs, fire_rewards, fire_dones, fire_infos = env.step(
+                            fire_actions
+                        )
+                        # Update observations with the fire step
+                        new_observations = fire_obs
+                        # Update rewards and lengths with fire step
+                        current_rewards[i] += fire_rewards[i]
+                        current_lengths[i] += 1
 
-    if verbose:
-        print(f"Average Reward over {len(seeds)} seeds: {avg_reward}")
-        print(f"Standard Deviation: {std_reward}")
+                    # Handle episode completion tracking
+                    if is_true_episode_end:
+                        if is_monitor_wrapped and "episode" in info.keys():
+                            # Do not trust "done" with episode endings.
+                            # Monitor wrapper includes "episode" key in info if environment
+                            # has been wrapped with it. Use those rewards instead.
+                            episode_rewards.append(info["episode"]["r"])
+                            episode_lengths.append(info["episode"]["l"])
+                            # Only increment at the real end of an episode
+                            episode_counts[i] += 1
+                        else:
+                            episode_rewards.append(current_rewards[i])
+                            episode_lengths.append(current_lengths[i])
+                            episode_counts[i] += 1
+                        current_rewards[i] = 0
+                        current_lengths[i] = 0
 
-    if return_lists:
-        return total_rewards, episode_lengths
-    return avg_reward, std_reward
+        observations = new_observations
+
+    mean_reward = np.mean(episode_rewards)
+    std_reward = np.std(episode_rewards)
+    if reward_threshold is not None:
+        assert mean_reward > reward_threshold, (
+            f"Mean reward below threshold: {mean_reward:.2f} < {reward_threshold:.2f}"
+        )
+    if return_episode_rewards:
+        return episode_rewards, episode_lengths
+    return mean_reward, std_reward
 
 
 if __name__ == "__main__":
@@ -184,3 +209,64 @@ if __name__ == "__main__":
         deterministic=args.deterministic,
         verbose=True,
     )
+
+
+def create_env(config, agent_mapping, n_envs):
+    """Create environment with given parameters"""
+
+    game_name = config["environment"]["game_name"]
+    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
+
+    if agent_mapping["policy"] == "CnnPolicy":
+        env = make_atari_env(
+            game_name,
+            n_envs=n_envs,  # Single environment for evaluation
+            seed=0,  # Fixed seed for reproducibility
+            wrapper_kwargs=wrapper_kwargs,
+        )
+        env = VecTransposeImage(env)
+        env = VecFrameStack(env, n_stack=4)
+    else:
+        oc_atari_kwargs = {
+            "mode": "vision",
+            "hud": False,
+            "obs_mode": "ori",
+            "frameskip": 4,
+            "repeat_action_probability": 0.0,
+        }
+        env = make_oc_atari_env(
+            game_name,
+            n_envs=n_envs,
+            seed=0,
+            env_kwargs=oc_atari_kwargs,
+            wrapper_kwargs=wrapper_kwargs,
+        )
+    if agent_mapping["encoder"]:
+        env = OCAtariEncoderWrapper(
+            env,
+            config["encoder"]["max_objects"],
+            num_envs=n_envs,
+            method=agent_mapping["method"],
+            speed_scale=config["encoder"]["speed_scale"],
+            use_rgb=config["encoder"]["use_rgb"],
+            use_category=config["encoder"]["use_category"],
+        )
+
+    return env
+
+
+def create_model(agent_mapping, env):
+    model_path = "./weights"
+    if agent_mapping["policy"] is None:
+        model = NaiveAgent()
+    else:
+        model = PPO.load(
+            os.path.join(model_path, agent_mapping["name"]),
+            env=env,
+            seed=0,
+            custom_objects={
+                "observation_space": env.observation_space,
+                "action_space": env.action_space,
+            },
+        )
+    return model
