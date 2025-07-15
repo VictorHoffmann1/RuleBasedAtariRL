@@ -132,6 +132,8 @@ def train(args):
         eval_env,
         eval_freq=max(100000 // n_envs, 1),
         verbose=1,
+        n_eval_episodes=10,
+        deterministic=True,
     )
 
     print("Training configuration:")

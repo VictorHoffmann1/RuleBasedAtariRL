@@ -13,7 +13,7 @@ encoder:
 
 model:
   # Global parameters
-  learning_rate: 0.001  # Slightly reduced for more stable updates with more data
+  learning_rate: 0.0015  # Slightly reduced for more stable updates with more data
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 

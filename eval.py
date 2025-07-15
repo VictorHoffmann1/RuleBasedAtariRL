@@ -24,6 +24,7 @@ def eval(
     verbose: bool = False,
     return_lists: bool = False,
 ):
+    n_envs = 1 if env is None else env.num_envs
     if env is None:
         # Load configuration
         with open("config.yaml", "r") as f:
@@ -38,7 +39,7 @@ def eval(
         if agent == "cnn":
             env = make_atari_env(
                 game_name,
-                n_envs=1,  # Single environment for evaluation
+                n_envs=n_envs,  # Single environment for evaluation
                 seed=0,  # Fixed seed for reproducibility
                 wrapper_kwargs=wrapper_kwargs,
             )
@@ -54,7 +55,7 @@ def eval(
             }
             env = make_oc_atari_env(
                 game_name,
-                n_envs=1,
+                n_envs=n_envs,
                 seed=0,
                 env_kwargs=oc_atari_kwargs,
                 wrapper_kwargs=wrapper_kwargs,
@@ -63,7 +64,7 @@ def eval(
             env = OCAtariEncoderWrapper(
                 env,
                 config["encoder"]["max_objects"],
-                num_envs=1,
+                num_envs=n_envs,
                 method=agent_mapping["method"],
                 speed_scale=config["encoder"]["speed_scale"],
                 use_rgb=config["encoder"]["use_rgb"],
@@ -98,7 +99,7 @@ def eval(
         step_count = 0
         per_life_step = 0
         # Get initial lives from info dict after first step
-        obs, reward, done, info = env.step([1])  # Force Fire action
+        obs, reward, done, info = env.step([1] * n_envs)  # Force Fire action
         if isinstance(info, list):
             info = info[0]
         lives = info.get("lives", None)
@@ -119,7 +120,7 @@ def eval(
             # Check for life change
             if new_lives < lives:
                 if agent != "cnn":  # Raises FrameStack error for CNN agent
-                    obs, _, _, info = env.step([1])  # Force Fire action
+                    obs, _, _, info = env.step([1] * n_envs)  # Force Fire action
                 per_life_step = 0
             elif per_life_step > max_steps_per_life:
                 # Safety: Force end if stuck on same life too long
