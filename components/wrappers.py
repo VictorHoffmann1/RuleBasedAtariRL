@@ -350,6 +350,8 @@ class OCAtariWrapper(gym.Wrapper):
     ) -> None:
         # if action_repeat_probability > 0.0:
         #    env = StickyActionEnv(env, action_repeat_probability)
+        if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]
+            env = FireResetEnv(env)
         if noop_max > 0:
             env = NoopResetEnv(env, noop_max=noop_max)
         # frame_skip=1 is the same as no frame-skip (action repeat)
@@ -357,8 +359,6 @@ class OCAtariWrapper(gym.Wrapper):
         #    env = MaxAndSkipEnv(env, skip=frame_skip, max_pool=max_pool)
         if terminal_on_life_loss:
             env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]
-            env = FireResetEnv(env)
         if clip_reward:
             env = ClipRewardEnv(env, 1.0)
 

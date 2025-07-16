@@ -2,7 +2,7 @@ environment:
   use_optimal_cores: false # Automatially changes n_envs based on CPU cores
   number: &num_envs 8 # Number of parallel environments if use_optimal_cores is false
   game_name: "ALE/Breakout-v5" # Only use NoFrameskip versions
-  seed: 7
+  seed: 42
 
 encoder:
   speed_scale: 8.0
@@ -13,17 +13,17 @@ encoder:
 
 model:
   # Global parameters
-  learning_rate: 0.001  # Slightly reduced for more stable updates with more data
+  learning_rate: 0.0005  # Slightly reduced for more stable updates with more data
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 
   # Actor-Critic parameters (A2C and PPO)
-  n_steps: 1024
+  n_steps: 128
   gae_lambda: 0.95
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
-  ppo_batch_size: 128  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
+  ppo_batch_size: 256  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
   n_epochs: 5  # Reduced: with more data per rollout, fewer epochs needed
   clip_range: 0.4
 

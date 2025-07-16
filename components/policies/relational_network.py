@@ -45,7 +45,7 @@ class RelationalNetwork(nn.Module):
         self.hidden_dim = hidden_dim
 
         self.init_weights()
-        
+
     def init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -160,7 +160,7 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
 
 
 class TopKAttention(nn.Module):
-    def __init__(self, input_dim, proj_dim, top_k, verbose=True):
+    def __init__(self, input_dim, proj_dim, top_k, verbose=False):
         """
         Optimized TopK attention with improved efficiency
         """
@@ -210,6 +210,6 @@ class TopKAttention(nn.Module):
                         f"{topk_indices[0, i, 0].item()} -> {topk_indices[0, i, 1].item()} with weight {topk_weights[0][i].item():.2f}"
                     )
                 print(f"Number of objects: {L}")
-        self.count += 1
+            self.count += 1
 
         return topk_indices, topk_weights

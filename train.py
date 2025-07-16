@@ -4,7 +4,7 @@ from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
 from components.schedulers import linear_scheduler, exponential_scheduler
 from components.vec_normalizer import VecNormalize
-from components.callbacks import CustomEvalCallback
+from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import VecFrameStack, SubprocVecEnv
 from stable_baselines3.common.env_util import make_atari_env
 from stable_baselines3.common.env_checker import check_env
@@ -58,7 +58,7 @@ def create_env(args, config, agent_mapping, n_envs, game_name, seed):
         env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
     else:
         oc_atari_kwargs = {
-            "mode": "vision",
+            "mode": "ram",
             "hud": False,
             "obs_mode": "ori",
             "frameskip": 4,
@@ -131,9 +131,9 @@ def train(args):
     # Initialize the model
     model_params = config["model"]
 
-    eval_callback = CustomEvalCallback(
+    eval_callback = EvalCallback(
         eval_env,
-        eval_freq=max(10000 // n_envs, 1),
+        eval_freq=max(100000 // n_envs, 1),
         verbose=1,
         n_eval_episodes=10,
         deterministic=True,

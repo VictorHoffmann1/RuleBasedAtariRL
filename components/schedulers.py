@@ -21,3 +21,10 @@ def exponential_scheduler(initial_value: float, final_value: float):
         return float(np.exp(log_lr))
 
     return func
+
+
+def get_lr(scheduler, lr, step, final_lr=1e-5, total_steps=1e7):
+    if scheduler == "exponential":
+        return lr * 10 ** ((np.log10(final_lr) - np.log10(lr)) / total_steps * step)
+    elif scheduler == "linear":
+        return (final_lr - lr) / total_steps * step + lr

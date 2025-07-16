@@ -2,10 +2,10 @@ from stable_baselines3 import PPO
 from components.environment import make_oc_atari_env
 from components.wrappers import OCAtariEncoderWrapper
 from components.agent_mappings import get_agent_mapping
-from components.schedulers import linear_scheduler
+from components.schedulers import linear_scheduler, exponential_scheduler, get_lr
 from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.env_util import make_atari_env
-from eval import eval
+from stable_baselines3.common.evaluation import evaluate_policy
 import yaml
 import os
 import argparse
@@ -19,13 +19,11 @@ def optuna_search(args):
         config = yaml.safe_load(f)
 
     game_name = config["environment"]["game_name"]
-
-    model_name = config["model"]["name"]
     n_envs = config["environment"]["number"]
 
     # Get agent mappings configuration
     agent_mapping = get_agent_mapping(
-        args.agent, game_name, model_name, model_extension="optuna"
+        args.agent, game_name, model_extension="optuna"
     )
 
     # Early stopping configuration
@@ -65,8 +63,8 @@ def optuna_search(args):
             return 1.0 - prob_exceed
 
     def objective(trial, study):
-        env_seeds = list(range(10))  # Use multiple seeds for robustness
-        model_seeds = list(range(10, 20))  # Different seeds for model
+        env_seeds = list(range(3))  # Use multiple seeds for robustness
+        model_seeds = list(range(10, 13))  # Different seeds for model
 
         if args.agent == "cnn":
             env = make_atari_env(
@@ -111,30 +109,31 @@ def optuna_search(args):
 
         # Sample hyperparameters
         n_steps = trial.suggest_categorical("n_steps", [128, 256, 512, 1024, 2048])
-        ent_coef = trial.suggest_float("ent_coef", 1e-6, 1e-2, log=True)
-        clip_range = trial.suggest_float("clip_range", 0.05, 0.5)
-        learning_rate = trial.suggest_float("learning_rate", 1e-4, 1e-3)
-        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
-        n_epochs = trial.suggest_categorical("n_epochs", [2, 4, 5, 8, 10])
-        gae_lambda = trial.suggest_float("gae_lambda", 0.9, 0.99)
+        #ent_coef = trial.suggest_float("ent_coef", 1e-6, 1e-2, log=True)
+        clip_range = trial.suggest_float("clip_range", 0.4, 0.4)
+        learning_rate = trial.suggest_float("learning_rate", 1e-4, 1.5e-3)
+        batch_size = trial.suggest_categorical("batch_size", [128, 256])
+        n_epochs = trial.suggest_categorical("n_epochs", [5])
+        gae_lambda = trial.suggest_float("gae_lambda", 0.95, 0.95)
 
         model = PPO(
             agent_mapping["policy"],
             env,
             verbose=0,
-            learning_rate=linear_scheduler(
+            learning_rate=exponential_scheduler(
                 learning_rate,
-                learning_rate * (1 - config["training"]["num_steps"] / 1e7),
+                get_lr("exponential", learning_rate, args.training_steps, 1e-5, 1e7),
             ),
             batch_size=batch_size,
             n_epochs=n_epochs,
             n_steps=n_steps,
             gamma=config["model"]["gamma"],
             gae_lambda=gae_lambda,
-            ent_coef=ent_coef,
+            ent_coef=0,
             vf_coef=config["model"]["vf_coef"],
             clip_range=linear_scheduler(
-                clip_range, clip_range * (1 - config["training"]["num_steps"] / 1e7)
+                clip_range,
+                get_lr("linear", clip_range, args.training_steps, clip_range * 0.1, 1e7)
             ),
             max_grad_norm=config["model"]["max_grad_norm"],
             tensorboard_log=log_dir,
@@ -166,18 +165,16 @@ def optuna_search(args):
             env.reset()
 
             model.learn(
-                total_timesteps=100000,
+                total_timesteps=args.training_steps,
                 tb_log_name=agent_mapping["name"],
                 # callback=eval_callback,
             )
 
             # Evaluate the model
-            reward, _ = eval(
+            reward, _ = evaluate_policy(
                 model=model,
-                agent=args.agent,
-                deterministic=True,
-                n_seeds=20,
-                verbose=False,
+                env=env,
+                n_eval_episodes=10,
             )
             print(f"Trial {trial.number}, Seed {env_seed}, Reward: {reward}")
 
@@ -232,6 +229,12 @@ if __name__ == "__main__":
         default="player+ball",
         required=True,
         help="The agent type to test.",
+    )
+    parser.add_argument(
+        "--training_steps",
+        type=int,
+        default=1000000,
+        help="Total number of training steps for each trial.",
     )
     parser.add_argument(
         "--early_stop",
