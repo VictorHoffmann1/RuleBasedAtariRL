@@ -1,5 +1,5 @@
 import os
-from stable_baselines3 import A2C, PPO
+from stable_baselines3 import PPO
 from components.environment import make_oc_atari_env
 from components.wrappers import OCAtariEncoderWrapper
 from components.policies.naive_agent import NaiveAgent
@@ -12,32 +12,10 @@ import yaml
 import cv2
 import argparse
 
+def make_env(game_name, agent_mapping, config):
+    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False, "noop_max": 0, "frame_skip":1}
 
-def test(args):
-    # Load configuration
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
-
-    model_path = "./weights"
-    video_folder = "./videos/"
-    if not os.path.exists(video_folder):
-        os.makedirs(video_folder)
-
-    debug_video_path = os.path.join(video_folder, args.agent + ".mp4")
-    upscale_factor = 4  # Change as needed for visibility
-    frame_height = 210 if args.agent != "cnn" else 84  # Atari frame height
-    frame_width = 160 if args.agent != "cnn" else 84  # Atari
-
-    game_name = config["environment"]["game_name"]
-    seed = args.seed
-    agent_mapping = get_agent_mapping(
-        args.agent,
-        game_name=game_name,
-        model_extension=args.model,
-    )
-    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
-
-    if args.agent == "cnn":
+    if agent_mapping["policy"] == "CnnPolicy":
         env = make_atari_env(
             game_name,
             n_envs=1,  # Single environment for evaluation
@@ -53,6 +31,7 @@ def test(args):
             "obs_mode": "ori",
             "frameskip": 4,
             "repeat_action_probability": 0.0,
+            "full_action_space": False,
         }
         env = make_oc_atari_env(
             game_name,
@@ -72,23 +51,66 @@ def test(args):
             use_category=config["encoder"]["use_category"],
         )
 
-    if args.agent == "naive":
+    return env
+
+def load_model(env, agent_mapping, path=None):
+    
+    if agent_mapping["policy"] == None:
         model = NaiveAgent()
     else:
+        if path is None:
+            raise ValueError("Model path must be provided for non-naive agents.")
         model = PPO.load(
-            os.path.join(model_path, agent_mapping["name"]),
+            path,
             env=env,
-            seed=seed,
+            seed=0,
             custom_objects={
                 "observation_space": env.observation_space,
                 "action_space": env.action_space,
             },
         )
 
+    return model
+
+def test(args):
+    # Load configuration
+    with open("config.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    model_path = "./weights"
+    video_folder = "./videos/"
+    if not os.path.exists(video_folder):
+        os.makedirs(video_folder)
+
+    debug_video_path = os.path.join(video_folder, args.agent + ".mp4")
+    upscale_factor = 4  # Change as needed for visibility
+    frame_height = 210 if args.agent != "cnn" else 84  # Atari frame height
+    frame_width = 160 if args.agent != "cnn" else 84  # Atari
+
+    game_name = config["environment"]["game_name"]
+    seed = args.seed
+
+    agent_mapping = get_agent_mapping(
+        args.agent,
+        game_name=game_name,
+        model_extension=args.model,
+    )
+
+    env = make_env(
+        game_name,
+        agent_mapping,
+        config,
+    )
+
+    model = load_model(
+        env,
+        agent_mapping,
+        os.path.join(model_path, agent_mapping["name"])
+    )
+
     model.set_random_seed(seed)
     env.seed(seed)
     obs = env.reset()
-    print(obs.shape)
     done = [False]
 
     # Prepare video writer for encoder visualization
@@ -103,16 +125,10 @@ def test(args):
     print("Starting test...")
     total_reward = 0
     step_count = 0
-    per_life_step = 0
     # Get initial lives from info dict after first step
-    obs, reward, done, info = env.step([1])  # Force Fire action
-    if isinstance(info, list):
-        info = info[0]
-    lives = info.get("lives", None)
+    obs, reward, done, infos = env.step([1])  # Force Fire action
+    info = infos[0] if isinstance(infos, list) else infos
     image = obs if args.agent == "cnn" else info["image"]
-
-    # Safety mechanisms to prevent infinite loops
-    max_steps_per_life = 2000  # Maximum steps per life
 
     while not done[0]:
         # Visualize frame
@@ -128,31 +144,20 @@ def test(args):
         out.write(vis_frame)
 
         actions, _ = model.predict(obs, deterministic=args.deterministic)
-        action = actions[0]
+        
         obs, reward, done, info = env.step(actions)
+        info = info[0] if isinstance(info, list) else info
         step_count += 1
         total_reward += reward[0]
-        per_life_step += 1
 
-        if isinstance(info, list):
-            info = info[0]
-        new_lives = info["lives"]
         image = obs if args.agent == "cnn" else info["image"]
 
-        if new_lives < lives:
-            obs, _, _, info = env.step([1])  # Force Fire action
-            per_life_step = 0
-        elif per_life_step > max_steps_per_life:
-            # Safety: Force end if stuck on same life too long
+        if step_count % args.verbose_update == 0:
             print(
-                f"  Warning: Forced termination after {per_life_step} steps on life {lives}"
+                f"Step: {step_count}, Current Score: {total_reward}"
             )
-            break
-        print(
-            f"Step: {step_count}, Action: {action}, Reward: {reward[0]}, Done: {done[0]}"
-        )
-        lives = new_lives
-    print(f"Test finished! Total reward: {total_reward}. Steps: {step_count}")
+
+    print(f"Test finished! Final Score: {total_reward}, Steps: {step_count}")
     env.close()
     out.release()
     print(f"Encoder debug video saved to {debug_video_path}")
@@ -269,6 +274,13 @@ if __name__ == "__main__":
         type=bool,
         default=True,
         help="Use deterministic actions for evaluation.",
+    )
+
+    parser.add_argument(
+        "--verbose_update",
+        type=int,
+        default=100,
+        help="Frequency of verbose updates during testing.",
     )
     args = parser.parse_args()
     test(args)

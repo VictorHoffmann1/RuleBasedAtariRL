@@ -208,8 +208,7 @@ class FireResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
         # Check if we need to fire after a life loss
         current_lives = info.get("lives", 0)
         if (
-            action == 0  # No-op action (used by EpisodicLifeEnv after life loss)
-            and current_lives > 0  # Still have lives left
+            current_lives > 0  # Still have lives left
             and current_lives < self._last_lives
         ):  # Life was lost
             # Fire to start the new life
@@ -234,7 +233,7 @@ class FireResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
         _, _, _, _, info = self.env.step(0)  # Get current state info
         self._last_lives = info.get("lives", 0)
 
-        return obs, {}
+        return obs, info
 
 
 class ClipRewardEnv(gym.RewardWrapper):
@@ -342,23 +341,25 @@ class OCAtariWrapper(gym.Wrapper):
         env: gym.Env,
         noop_max: int = 30,
         max_pool: bool = True,
-        frame_skip: int = 4,
+        frame_skip: int = 1,
         terminal_on_life_loss: bool = True,
         clip_reward: bool = True,
         action_repeat_probability: float = 0.0,
         time_limit: int = 2000,
     ) -> None:
-        # if action_repeat_probability > 0.0:
-        #    env = StickyActionEnv(env, action_repeat_probability)
+        if action_repeat_probability > 0.0:
+            env = StickyActionEnv(env, action_repeat_probability)
         if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]
             env = FireResetEnv(env)
         if noop_max > 0:
             env = NoopResetEnv(env, noop_max=noop_max)
         # frame_skip=1 is the same as no frame-skip (action repeat)
-        # if frame_skip > 1:
-        #    env = MaxAndSkipEnv(env, skip=frame_skip, max_pool=max_pool)
+        if frame_skip > 1:
+            env = MaxAndSkipEnv(env, skip=frame_skip, max_pool=max_pool)
         if terminal_on_life_loss:
             env = EpisodicLifeEnv(env)
+        if time_limit > 0:
+            env = TimeLimit(env, time_limit)
         if clip_reward:
             env = ClipRewardEnv(env, 1.0)
 

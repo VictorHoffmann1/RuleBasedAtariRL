@@ -168,8 +168,8 @@ class TopKAttention(nn.Module):
         self.top_k = top_k
         self.scale = proj_dim**-0.5
 
-        self.Q = nn.Linear(input_dim, proj_dim)  # Query projection
-        self.K = nn.Linear(input_dim, proj_dim)  # Key projection
+        self.query_proj = nn.Linear(input_dim, proj_dim)  # Query projection
+        self.key_proj = nn.Linear(input_dim, proj_dim)  # Key projection
 
         self.verbose = verbose
         if verbose:
@@ -178,8 +178,8 @@ class TopKAttention(nn.Module):
     def forward(self, x, padding_mask=None):
         B, L, _ = x.shape
 
-        Q = self.Q(x)  # (B, L, proj_dim)
-        K = self.K(x)  # (B, L, proj_dim)
+        Q = self.query_proj(x)  # (B, L, proj_dim)
+        K = self.key_proj(x)  # (B, L, proj_dim)
 
         # Compute attention scores
         attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
