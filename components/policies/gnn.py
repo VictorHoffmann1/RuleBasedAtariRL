@@ -17,106 +17,75 @@ class GNN(nn.Module):
         self.pooling = pooling
 
         self.conv1 = GCNConv(
-            input_dim - 3, hidden_dim
-        )  # Exclude is_player, is_ball, is_brick
+            input_dim, hidden_dim
+        )
         self.conv2 = GCNConv(hidden_dim, output_dim)
 
     def forward(self, x):
         """
-        x: Tensor of shape (batch_size, num_nodes, 8)
-        Assumes last 3 dims are is_player, is_ball, is_brick and are NOT used for GNN input
+        x: Tensor of shape (batch_size, num_nodes, n_features)
+        where features = [x, y, vx, vy, w, h]
         """
-        batch_size, num_nodes, feat_dim = x.shape
-        device = x.device
-
-        # Extract core features for all batches at once
-        core_features = x[:, :, :5]  # (B, N, 5) - [x, y, dx, dy, is_active]
-
-        # Vectorized object type identification
-        is_ball = x[:, :, 6] == 1  # (B, N)
-        is_player = x[:, :, 5] == 1  # (B, N)
-        is_brick = x[:, :, 7] == 1  # (B, N)
-
-        # Find indices for each batch
-        ball_indices = is_ball.nonzero(
-            as_tuple=False
-        )  # (num_balls, 2) - [batch_idx, node_idx]
-        player_indices = is_player.nonzero(as_tuple=False)
-        brick_indices = is_brick.nonzero(as_tuple=False)
-
-        # Validate one ball and paddle per batch
-        assert ball_indices.size(0) == batch_size, (
-            f"Expected {batch_size} balls, got {ball_indices.size(0)}"
-        )
-        assert player_indices.size(0) == batch_size, (
-            f"Expected {batch_size} paddles, got {player_indices.size(0)}"
-        )
-
-        # Build edge index efficiently
-        all_edges = []
-        batch_assignment = []
-        node_offset = 0
-
+        batch_size, num_nodes, n_features = x.shape
+        
+        # Get padding mask - True for valid nodes, False for padded nodes
+        mask = x.abs().sum(dim=-1) != 0  # Shape: (batch_size, num_nodes)
+        
+        batch_outputs = []
+        
         for b in range(batch_size):
-            # Get node indices for this batch
-            ball_node = ball_indices[b, 1].item()
-            player_node = player_indices[b, 1].item()
-            brick_nodes = brick_indices[
-                brick_indices[:, 0] == b, 1
-            ]  # All bricks in batch b
+            # Get valid nodes for this batch item
+            valid_mask = mask[b]  # Shape: (num_nodes,)
+            valid_indices = torch.nonzero(valid_mask, as_tuple=False).squeeze(-1)
+            
+            if len(valid_indices) == 0:
+                # No valid nodes, return zero tensor
+                batch_outputs.append(torch.zeros(self.conv2.out_channels, device=x.device, dtype=x.dtype))
+                continue
+                
+            # Extract valid node features
+            node_features = x[b, valid_indices]  # Shape: (num_valid_nodes, n_features)
+            
+            # Create edge indices based on velocity features (3rd and 4th features)
+            # Edge exists if either node has non-zero velocity
+            edge_indices = []
+            for i, idx_i in enumerate(valid_indices):
+                for j, idx_j in enumerate(valid_indices):
+                    if i != j:  # No self-loops
+                        node_i_features = x[b, idx_i]
+                        node_j_features = x[b, idx_j]
+                        # Check if either node has velocity (3rd or 4th feature != 0)
+                        if (node_i_features[3] != 0 or node_i_features[4] != 0 or 
+                            node_j_features[3] != 0 or node_j_features[4] != 0):
+                            edge_indices.append([i, j])
+            
+            if len(edge_indices) == 0:
+                # No edges, just process nodes independently
+                edge_index = torch.empty((2, 0), dtype=torch.long, device=x.device)
+            else:
+                edge_index = torch.tensor(edge_indices, dtype=torch.long, device=x.device).t()
+            
+            # Apply GCN layers
+            h = F.relu(self.conv1(node_features, edge_index))
+            h = self.conv2(h, edge_index)
+            
+            # Apply global pooling
+            batch_tensor = torch.zeros(h.size(0), dtype=torch.long, device=x.device)
+            if self.pooling == "mean":
+                graph_embedding = global_mean_pool(h, batch_tensor)
+            elif self.pooling == "max":
+                graph_embedding = global_max_pool(h, batch_tensor)
+            elif self.pooling == "add":
+                graph_embedding = global_add_pool(h, batch_tensor)
+            else:
+                raise ValueError(f"Unknown pooling method: {self.pooling}")
+            
+            batch_outputs.append(graph_embedding.squeeze(0))
+        
+        # Stack batch outputs
+        output = torch.stack(batch_outputs, dim=0)  # Shape: (batch_size, output_dim)
+        return output
 
-            # Add node offset for global indexing
-            ball_global = ball_node + node_offset
-            player_global = player_node + node_offset
-            brick_globals = brick_nodes + node_offset
-
-            # Ball <-> Player edges
-            edges = [[ball_global, player_global], [player_global, ball_global]]
-
-            # Ball <-> Brick edges
-            for brick_global in brick_globals:
-                edges.extend(
-                    [
-                        [ball_global, brick_global.item()],
-                        [brick_global.item(), ball_global],
-                    ]
-                )
-
-            all_edges.extend(edges)
-
-            # Batch assignment for each node
-            batch_assignment.extend([b] * num_nodes)
-            node_offset += num_nodes
-
-        # Convert to tensors
-        if all_edges:
-            edge_index = (
-                torch.tensor(all_edges, dtype=torch.long, device=device)
-                .t()
-                .contiguous()
-            )
-        else:
-            edge_index = torch.empty((2, 0), dtype=torch.long, device=device)
-
-        batch_tensor = torch.tensor(batch_assignment, dtype=torch.long, device=device)
-
-        # Flatten features for batched processing
-        x_flat = core_features.view(-1, 5)  # (B*N, 5)
-
-        # GNN forward pass
-        h = F.relu(self.conv1(x_flat, edge_index))
-        h = self.conv2(h, edge_index)
-
-        # Pooling over nodes to get graph-level feature
-        if self.pooling == "mean":
-            out = global_mean_pool(h, batch_tensor)
-        elif self.pooling == "max":
-            out = global_max_pool(h, batch_tensor)
-        elif self.pooling == "sum":
-            out = global_add_pool(h, batch_tensor)
-        else:
-            raise ValueError(f"Unsupported pooling: {self.pooling}")
-        return out
 
 
 class GNNFeaturesExtractor(BaseFeaturesExtractor):
@@ -134,7 +103,7 @@ class CustomGNNPolicy(ActorCriticPolicy):
         observation_space,
         action_space,
         lr_schedule,
-        n_features=8,
+        n_features=6,
         hidden_dim=64,
         output_dim=32,
         pooling="max",

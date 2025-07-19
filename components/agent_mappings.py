@@ -182,11 +182,11 @@ def get_agent_mapping(key, config, n_envs, game_id, model_extension=""):
     elif key == "player+ball+bricks+gnn":
         agent_mapping = {
             "encoder": rb_encoder[game_name](
-                encoding_method="bricks+paddle+ball+object_vectors",
+                encoding_method="bricks+paddle+ball+discovery",
                 speed_scale=config["encoder"]["speed_scale"],
                 num_envs=n_envs,
             ),
-            "n_features": 8,
+            "n_features": 6,
             "name": game_name + "_rb_player_ball_bricks_gnn" + model_extension,
             "policy": CustomGNNPolicy,
             "use_feature_kwargs": True,
