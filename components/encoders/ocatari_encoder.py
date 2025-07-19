@@ -1,10 +1,8 @@
-import numpy as np
-import cv2
-from typing import List, Optional
-import gymnasium as gym
-from ocatari.core import OCAtari
-from ocatari.vision.game_objects import GameObject
 import warnings
+
+import gymnasium as gym
+import numpy as np
+from ocatari.core import OCAtari
 
 
 class OCAtariEncoder:
@@ -78,11 +76,13 @@ class OCAtariEncoder:
                         )
                         if self.use_rgb:
                             rgb = object.rgb
-                            rgb_vector = np.array([
-                                self.normalize(rgb[0], 255, False),
-                                self.normalize(rgb[1], 255, False),
-                                self.normalize(rgb[2], 255, False),
-                            ])
+                            rgb_vector = np.array(
+                                [
+                                    self.normalize(rgb[0], 255, False),
+                                    self.normalize(rgb[1], 255, False),
+                                    self.normalize(rgb[2], 255, False),
+                                ]
+                            )
                             object_vector = np.concatenate((object_vector, rgb_vector))
                         if self.use_category:
                             category_vector = np.zeros(3)
@@ -156,8 +156,7 @@ class OCAtariEncoder:
 
         # If we can't find OCAtari, raise an error
         raise ValueError("No OCAtari environment found in the wrapper chain")
-    
-    
+
     @staticmethod
     def normalize(value, scale, centering=False):
         """

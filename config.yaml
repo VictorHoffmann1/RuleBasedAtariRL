@@ -13,19 +13,19 @@ encoder:
 
 model:
   # Global parameters
-  learning_rate: 0.0005  # Slightly reduced for more stable updates with more data
+  learning_rate: 0.0008  # Slightly reduced for more stable updates with more data
   gamma: 0.99
   scheduler: true # Use linear learning rate scheduler
 
   # Actor-Critic parameters (A2C and PPO)
-  n_steps: 128
+  n_steps: 256
   gae_lambda: 0.95
-  ent_coef: 0.0
+  ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
   ppo_batch_size: 256  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
   n_epochs: 5  # Reduced: with more data per rollout, fewer epochs needed
-  clip_range: 0.4
+  clip_range: 0.3
 
 training:
   num_steps: 10000000 # Number of episodes to train

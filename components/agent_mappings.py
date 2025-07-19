@@ -1,10 +1,10 @@
-from components.policies.transformer import CustomTransformerPolicy
 from components.policies.deep_sets import CustomDeepSetPolicy
-from components.policies.lstm import CustomLSTMPolicy
 from components.policies.gnn import CustomGNNPolicy
+from components.policies.lstm import CustomLSTMPolicy
+from components.policies.relational_network import CustomRelationalNetworkPolicy
 from components.policies.sa_deepsets import CustomSelfAttentionDeepSetsPolicy
 from components.policies.set_transformer import CustomSetTransformerPolicy
-from components.policies.relational_network import CustomRelationalNetworkPolicy
+from components.policies.transformer import CustomTransformerPolicy
 
 
 def get_agent_mapping(key, game_name, model_extension=""):
@@ -20,12 +20,18 @@ def get_agent_mapping(key, game_name, model_extension=""):
     """
     model_extension = f"_{model_extension}" if model_extension else ""
     # Remove "ALE" and "-v5" from game_name
-    game_name = game_name.replace("ALE/", "").replace("-v5", "").replace("-v4", "").replace("NoFrameskip", "")
+    version = "_v5" if "v5" in game_name else "_v4"
+    game_name = (
+        game_name.replace("ALE/", "")
+        .replace("-v5", "")
+        .replace("-v4", "")
+        .replace("NoFrameskip", "")
+    )
 
     if key == "transformer":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_transformer" + model_extension,
+            "name": "OC_" + game_name + "_transformer" + version + model_extension,
             "policy": CustomTransformerPolicy,
             "use_feature_kwargs": True,
             "method": "discovery",
@@ -33,7 +39,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "deepsets":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_deep_sets" + model_extension,
+            "name": "OC_" + game_name + "_deep_sets" + version + model_extension,
             "policy": CustomDeepSetPolicy,
             "use_feature_kwargs": True,
             "method": "discovery",
@@ -41,7 +47,11 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "relational_network":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_relational_network" + model_extension,
+            "name": "OC_"
+            + game_name
+            + "_relational_network"
+            + version
+            + model_extension,
             "policy": CustomRelationalNetworkPolicy,
             "use_feature_kwargs": True,
             "method": "discovery",
@@ -49,7 +59,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "set_transformer":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_set_transformer" + model_extension,
+            "name": "OC_" + game_name + "_set_transformer" + version + model_extension,
             "policy": CustomSetTransformerPolicy,
             "use_feature_kwargs": True,
             "method": "discovery",
@@ -57,7 +67,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "sa_deepsets":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_sa_deep_sets" + model_extension,
+            "name": "OC_" + game_name + "_sa_deep_sets" + version + model_extension,
             "policy": CustomSelfAttentionDeepSetsPolicy,
             "use_feature_kwargs": True,
             "method": "discovery",
@@ -65,7 +75,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "lstm":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_lstm" + model_extension,
+            "name": "OC_" + game_name + "_lstm" + version + model_extension,
             "policy": CustomLSTMPolicy,
             "use_feature_kwargs": True,
             "method": "discovery",
@@ -73,7 +83,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "gnn":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_gnn" + model_extension,
+            "name": "OC_" + game_name + "_gnn" + version + model_extension,
             "policy": CustomGNNPolicy,
             "use_feature_kwargs": True,
             "method": "discovery",
@@ -81,7 +91,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "mlp":
         agent_mapping = {
             "encoder": True,
-            "name": game_name + "_mlp" + model_extension,
+            "name": "OC_" + game_name + "_mlp" + version + model_extension,
             "policy": "MlpPolicy",
             "use_feature_kwargs": False,
             "method": "expert",
@@ -89,7 +99,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
     elif key == "cnn":
         agent_mapping = {
             "encoder": False,
-            "name": game_name + "_cnn" + model_extension,
+            "name": "OC_" + game_name + "_cnn" + version + model_extension,
             "policy": "CnnPolicy",
             "n_stack": 4,  # Number of frames to stack for CNN input
             "use_feature_kwargs": False,
@@ -101,7 +111,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
         )
         agent_mapping = {
             "encoder": True,
-            "name": None,  # No model to load for rule-based agent
+            "name": "OC_" + None,  # No model to load for rule-based agent
             "policy": None,
             "method": "discovery",
         }
