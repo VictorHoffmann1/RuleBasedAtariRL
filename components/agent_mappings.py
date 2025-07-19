@@ -8,7 +8,7 @@ from components.policies.gnn import CustomGNNPolicy
 from components.policies.relational_network import CustomRelationalNetworkPolicy
 
 
-def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=""):
+def get_agent_mapping(key, config, n_envs, game_id, model_extension=""):
     """
     Get agent mappings configuration for different agent types.
 
@@ -16,7 +16,6 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
         config: Configuration dictionary loaded from config.yaml
         n_envs: Number of environments
         game_name: Name of the Atari game
-        model_name: Name of the model (e.g., "PPO", "A2C")
 
     Returns:
         Agent mapping with encoder, policy, and other configurations
@@ -26,7 +25,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
         "Pong": PongEncoder,
     }
 
-    game_name = "Breakout" if "Breakout" in game_id else "Pong"
+    game_name = game_id.replace("ALE/", "").replace("-v5", "").replace("-v4", "").replace("NoFrameskip", "")
     model_extension = f"_{model_extension}" if model_extension else ""
 
     if key == "player+ball":
@@ -37,7 +36,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 5 if "Breakout" in game_name else 6,
-            "name": model_name + "_rb_player_ball" + model_extension,
+            "name": game_name + "_rb_player_ball" + model_extension,
             "policy": "MlpPolicy",
             "use_feature_kwargs": False,
             "n_stack": None,
@@ -51,7 +50,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 4,
-            "name": model_name + "_rb_player_ball_egocentric" + model_extension,
+            "name": game_name + "_rb_player_ball_egocentric" + model_extension,
             "policy": "MlpPolicy",
             "use_feature_kwargs": False,
             "n_stack": None,
@@ -65,7 +64,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 113,
-            "name": model_name + "_rb_player_ball_bricks" + model_extension,
+            "name": game_name + "_rb_player_ball_bricks" + model_extension,
             "policy": "MlpPolicy",
             "use_feature_kwargs": False,
             "n_stack": None,
@@ -79,7 +78,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 13,
-            "name": model_name + "_rb_player_ball_trajectory" + model_extension,
+            "name": game_name + "_rb_player_ball_trajectory" + model_extension,
             "policy": "MlpPolicy",
             "use_feature_kwargs": False,
             "n_stack": None,
@@ -94,7 +93,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 6,
-            "name": model_name + "_rb_deepsets" + model_extension,
+            "name": game_name + "_rb_deepsets" + model_extension,
             "policy": CustomDeepSetPolicy,  # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
             "n_stack": None,
@@ -108,7 +107,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 6,
-            "name": model_name + "_relational_net" + model_extension,
+            "name": game_name + "_relational_net" + model_extension,
             "policy": CustomRelationalNetworkPolicy,  # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
             "n_stack": None,
@@ -122,7 +121,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 6,
-            "name": model_name + "_rb_transformers" + model_extension,
+            "name": game_name + "_rb_transformers" + model_extension,
             "policy": CustomTransformerPolicy,  # TODO: Try CustomTransformerPolicy
             "use_feature_kwargs": True,
             "n_stack": None,
@@ -132,7 +131,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
         agent_mapping = {
             "encoder": None,  # CNN does not require a custom encoder
             "n_features": -1,
-            "name": model_name + "_cnn" + model_extension,
+            "name": game_name + "_cnn" + model_extension,
             "policy": "CnnPolicy",
             "use_feature_kwargs": False,
             "n_stack": 4,  # Stack frames for CNN
@@ -160,7 +159,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 8,
-            "name": model_name + "_rb_player_ball_bricks_deepsets" + model_extension,
+            "name": game_name + "_rb_player_ball_bricks_deepsets" + model_extension,
             "policy": CustomDeepSetPolicy,
             "use_feature_kwargs": True,
             "n_stack": None,
@@ -174,7 +173,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 8,
-            "name": model_name + "_rb_player_ball_bricks_lstm" + model_extension,
+            "name": game_name + "_rb_player_ball_bricks_lstm" + model_extension,
             "policy": CustomLSTMPolicy,
             "use_feature_kwargs": True,
             "n_stack": None,
@@ -188,7 +187,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 num_envs=n_envs,
             ),
             "n_features": 8,
-            "name": model_name + "_rb_player_ball_bricks_gnn" + model_extension,
+            "name": game_name + "_rb_player_ball_bricks_gnn" + model_extension,
             "policy": CustomGNNPolicy,
             "use_feature_kwargs": True,
             "n_stack": None,
@@ -202,7 +201,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 max_objects=config["encoder"]["max_objects"],
             ),
             "n_features": 8,
-            "name": model_name + "_rb_transformer",
+            "name": game_name + "_rb_transformer",
             "policy": CustomTransformerPolicy,
             "use_feature_kwargs": True,
             "n_stack": 2,  # Stack frames for temporal encoding
@@ -216,7 +215,7 @@ def get_agent_mapping(key, config, n_envs, game_id, model_name, model_extension=
                 max_objects=config["encoder"]["max_objects"],
             ),
             "n_features": 8,
-            "name": model_name + "_rb_deep_sets" + model_extension,
+            "name": game_name + "_rb_deep_sets" + model_extension,
             "policy": CustomDeepSetPolicy,
             "use_feature_kwargs": True,
             "n_stack": 2,  # Stack frames for temporal encoding

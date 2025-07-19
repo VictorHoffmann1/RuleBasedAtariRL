@@ -5,6 +5,7 @@ import shimmy
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+from gymnasium.wrappers import TimeLimit
 
 try:
     import cv2
@@ -125,6 +126,7 @@ class NoopResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
 class FireResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
     """
     Take action on reset for environments that are fixed until firing.
+    Also handles firing when a life is lost.
 
     :param env: Environment to wrap
     """
@@ -133,16 +135,41 @@ class FireResetEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
         super().__init__(env)
         assert env.unwrapped.get_action_meanings()[1] == "FIRE"  # type: ignore[attr-defined]
         assert len(env.unwrapped.get_action_meanings()) >= 3  # type: ignore[attr-defined]
+        self._last_lives = 0
+        self._fire_action = 1
+
+    def step(self, action: int) -> AtariStepReturn:
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        # Check if we need to fire after a life loss
+        current_lives = self.env.unwrapped.ale.lives() 
+        if (
+            current_lives > 0  # Still have lives left
+            and current_lives < self._last_lives
+        ):  # Life was lost
+            # Fire to start the new life
+            obs, _, terminated, truncated, info = self.env.step(self._fire_action)
+            if terminated or truncated:
+                # If firing caused game over, step with no-op to get stable state
+                obs, _, terminated, truncated, info = self.env.step(0)
+
+        self._last_lives = current_lives
+        return obs, reward, terminated, truncated, info
 
     def reset(self, **kwargs) -> AtariResetReturn:
         self.env.reset(**kwargs)
-        obs, _, terminated, truncated, _ = self.env.step(1)
+        obs, _, terminated, truncated, _ = self.env.step(self._fire_action)
         if terminated or truncated:
             self.env.reset(**kwargs)
         obs, _, terminated, truncated, _ = self.env.step(2)
         if terminated or truncated:
             self.env.reset(**kwargs)
-        return obs, {}
+
+        # Initialize life tracking
+        _, _, _, _, info = self.env.step(0)  # Get current state info
+        self._last_lives = self.env.unwrapped.ale.lives()
+
+        return obs, info
 
 
 class EpisodicLifeEnv(gym.Wrapper[np.ndarray, int, np.ndarray, int]):
@@ -353,26 +380,27 @@ class AtariWrapper(gym.Wrapper):
     def __init__(
         self,
         env: gym.Env,
+        action_repeat_probability: float = 0.0,
         noop_max: int = 30,
         frame_skip: int = 4,
         max_pool: bool = True,
         screen_size: int = 84,
         terminal_on_life_loss: bool = True,
         clip_reward: bool = True,
-        action_repeat_probability: float = 0.0,
         greyscale: bool = True,
+        time_limit: int = 10000,
     ) -> None:
         if action_repeat_probability > 0.0:
             env = StickyActionEnv(env, action_repeat_probability)
+        if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]
+            env = FireResetEnv(env)
         if noop_max > 0:
             env = NoopResetEnv(env, noop_max=noop_max)
         # frame_skip=1 is the same as no frame-skip (action repeat)
-        if frame_skip > 1:
+        if frame_skip > 1 or max_pool:
             env = MaxAndSkipEnv(env, skip=frame_skip, max_pool=max_pool)
         if terminal_on_life_loss:
             env = EpisodicLifeEnv(env)
-        if "FIRE" in env.unwrapped.get_action_meanings():  # type: ignore[attr-defined]
-            env = FireResetEnv(env)
         if screen_size > 0:
             width, height = screen_size, screen_size
         else:  # use original_size
@@ -380,5 +408,7 @@ class AtariWrapper(gym.Wrapper):
         env = WarpFrame(env, width=width, height=height, greyscale=greyscale)
         if clip_reward:
             env = ClipRewardEnv(env)
+        if time_limit > 0:
+            env = TimeLimit(env, time_limit)
 
         super().__init__(env)

@@ -103,10 +103,10 @@ class CustomDeepSetPolicy(ActorCriticPolicy):
         observation_space,
         action_space,
         lr_schedule,
-        n_features=8,
+        n_features=6,
         hidden_dim=64,
         output_dim=32,
-        pooling="max",
+        pooling="mean",
         **kwargs,
     ):
         super().__init__(

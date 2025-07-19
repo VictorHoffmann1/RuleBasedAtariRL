@@ -1,30 +1,29 @@
 environment:
+  use_optimal_cores: false # Use optimal number of cores for parallel environments
   number: &num_envs 8 # Number of parallel environments
-  game_name: "BreakoutNoFrameskip-v4" # Environment name
-  seed: 7
+  game_name: "ALE/Breakout-v5" # Environment name
+  seed: 14
 
 encoder:
-  speed_scale: 10.0
+  speed_scale: 8.0
   num_envs: *num_envs
-  max_objects: 64 # Maximum number of objects to encode for transformer / deepsets method
+  max_objects: 32 # Maximum number of objects to encode for transformer / deepsets method
 
 model:
-  name: "PPO" # Model name (PPO or A2C)
-
   # Global parameters
   learning_rate: 0.0008 # Ignored if linear_scheduler is true
   gamma: 0.99
-  scheduler: true # Use linear learning rate scheduler
+  scheduler: true # Use learning rate scheduler
 
-  # Actor-Critic parameters (A2C and PPO)
-  n_steps: 1048
+  # PPO parameters
+  n_steps: 256
   gae_lambda: 0.95
   ent_coef: 0.01
   vf_coef: 0.5
   max_grad_norm: 0.5
-  ppo_batch_size: 128 # PPO Only
-  n_epochs: 5 # PPO Only
-  clip_range: 0.3 # PPO Only
+  ppo_batch_size: 256
+  n_epochs: 5
+  clip_range: 0.3
 
 
 training:
