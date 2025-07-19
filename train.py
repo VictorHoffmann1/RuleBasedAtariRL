@@ -50,10 +50,25 @@ os.environ["MKL_NUM_THREADS"] = str(optimal_threads)
 def create_env(args, config, agent_mapping, n_envs, game_name, seed):
     """Create environment with given parameters"""
     if args.agent == "cnn":
+        wrapper_kwargs = {
+            "frame_skip": 4 if "v4" in game_name else 5,
+            "terminal_on_life_loss": True if "v4" in game_name else False,
+        }
+        env_kwargs = (
+            {
+                "frameskip": 1,
+                "repeat_action_probability": 0.25,
+                "full_action_space": True,
+            }
+            if "v5" in game_name
+            else {}
+        )
         env = make_atari_env(
             game_name,
             n_envs=n_envs,
             seed=seed,
+            env_kwargs=env_kwargs,
+            wrapper_kwargs=wrapper_kwargs,
         )
         # Stack frames to encode temporal information
         env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
@@ -71,7 +86,7 @@ def create_env(args, config, agent_mapping, n_envs, game_name, seed):
             "obs_mode": "ori",
         }
         if "v5" in game_name:
-            oc_atari_kwargs["frameskip"] = 4
+            oc_atari_kwargs["frameskip"] = 5
             oc_atari_kwargs["repeat_action_probability"] = 0.25
             oc_atari_kwargs["full_action_space"] = True
         env = make_oc_atari_env(
