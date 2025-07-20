@@ -1,76 +1,12 @@
 import os
-from stable_baselines3 import PPO
-from components.environment import make_oc_atari_env
-from components.wrappers import OCAtariEncoderWrapper
-from components.policies.naive_agent import NaiveAgent
 from components.agent_mappings import get_agent_mapping
-from stable_baselines3.common.vec_env import VecFrameStack, VecTransposeImage
-from stable_baselines3.common.env_util import make_atari_env
+from components.utils import create_env, load_model
 import gymnasium as gym
 from ocatari.core import OCAtari
 import yaml
 import cv2
 import argparse
 
-def make_env(game_name, agent_mapping, config):
-    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False, "noop_max": 0, "frame_skip":1}
-
-    if agent_mapping["policy"] == "CnnPolicy":
-        env = make_atari_env(
-            game_name,
-            n_envs=1,  # Single environment for evaluation
-            seed=0,  # Fixed seed for reproducibility
-            wrapper_kwargs=wrapper_kwargs,
-        )
-        env = VecTransposeImage(env)
-        env = VecFrameStack(env, n_stack=4)
-    else:
-        oc_atari_kwargs = {
-            "mode": "vision",
-            "hud": False,
-            "obs_mode": "ori",
-            "frameskip": 4,
-            "repeat_action_probability": 0.0,
-            "full_action_space": False,
-        }
-        env = make_oc_atari_env(
-            game_name,
-            n_envs=1,
-            seed=0,
-            env_kwargs=oc_atari_kwargs,
-            wrapper_kwargs=wrapper_kwargs,
-        )
-    if agent_mapping["encoder"]:
-        env = OCAtariEncoderWrapper(
-            env,
-            config["encoder"]["max_objects"],
-            num_envs=1,
-            method=agent_mapping["method"],
-            speed_scale=config["encoder"]["speed_scale"],
-            use_rgb=config["encoder"]["use_rgb"],
-            use_category=config["encoder"]["use_category"],
-        )
-
-    return env
-
-def load_model(env, agent_mapping, path=None):
-    
-    if agent_mapping["policy"] == None:
-        model = NaiveAgent()
-    else:
-        if path is None:
-            raise ValueError("Model path must be provided for non-naive agents.")
-        model = PPO.load(
-            path,
-            env=env,
-            seed=0,
-            custom_objects={
-                "observation_space": env.observation_space,
-                "action_space": env.action_space,
-            },
-        )
-
-    return model
 
 def test(args):
     # Load configuration
@@ -96,16 +32,16 @@ def test(args):
         model_extension=args.model,
     )
 
-    env = make_env(
-        game_name,
-        agent_mapping,
+    env = create_env(
         config,
+        agent_mapping,
+        n_envs=1,
+        seed=seed,
+        train=False,
     )
 
     model = load_model(
-        env,
-        agent_mapping,
-        os.path.join(model_path, agent_mapping["name"])
+        env, agent_mapping, os.path.join(model_path, agent_mapping["name"])
     )
 
     model.set_random_seed(seed)
@@ -144,7 +80,7 @@ def test(args):
         out.write(vis_frame)
 
         actions, _ = model.predict(obs, deterministic=args.deterministic)
-        
+
         obs, reward, done, info = env.step(actions)
         info = info[0] if isinstance(info, list) else info
         step_count += 1
@@ -153,9 +89,7 @@ def test(args):
         image = obs if args.agent == "cnn" else info["image"]
 
         if step_count % args.verbose_update == 0:
-            print(
-                f"Step: {step_count}, Current Score: {total_reward}"
-            )
+            print(f"Step: {step_count}, Current Score: {total_reward}")
 
     print(f"Test finished! Final Score: {total_reward}, Steps: {step_count}")
     env.close()

@@ -1,17 +1,11 @@
-from stable_baselines3 import A2C, PPO
-from components.environment import make_oc_atari_env
-from components.wrappers import OCAtariEncoderWrapper
-from components.policies.naive_agent import NaiveAgent
 from components.agent_mappings import get_agent_mapping
+from components.utils import create_env, load_model
 from stable_baselines3.common.vec_env import (
-    VecFrameStack,
-    VecTransposeImage,
     DummyVecEnv,
     VecEnv,
     VecMonitor,
     is_vecenv_wrapped,
 )
-from stable_baselines3.common.env_util import make_atari_env
 import yaml
 import os
 import numpy as np
@@ -43,10 +37,13 @@ def eval(
         )
 
     if env is None:
-        env = create_env(config, agent_mapping, model_extension, n_envs)
+        env = create_env(config, agent_mapping, n_envs, seed=0, train=False)
 
     if model is None:
-        model = create_model(agent_mapping, env)
+        model_path = "./weights"
+        model = load_model(
+            env, agent_mapping, os.path.join(model_path, agent_mapping["name"]), seed=0
+        )
 
     is_monitor_wrapped = False
     # Avoid circular import
@@ -209,64 +206,3 @@ if __name__ == "__main__":
         deterministic=args.deterministic,
         verbose=True,
     )
-
-
-def create_env(config, agent_mapping, n_envs):
-    """Create environment with given parameters"""
-
-    game_name = config["environment"]["game_name"]
-    wrapper_kwargs = {"clip_reward": False, "terminal_on_life_loss": False}
-
-    if agent_mapping["policy"] == "CnnPolicy":
-        env = make_atari_env(
-            game_name,
-            n_envs=n_envs,  # Single environment for evaluation
-            seed=0,  # Fixed seed for reproducibility
-            wrapper_kwargs=wrapper_kwargs,
-        )
-        env = VecTransposeImage(env)
-        env = VecFrameStack(env, n_stack=4)
-    else:
-        oc_atari_kwargs = {
-            "mode": "vision",
-            "hud": False,
-            "obs_mode": "ori",
-            "frameskip": 4,
-            "repeat_action_probability": 0.0,
-        }
-        env = make_oc_atari_env(
-            game_name,
-            n_envs=n_envs,
-            seed=0,
-            env_kwargs=oc_atari_kwargs,
-            wrapper_kwargs=wrapper_kwargs,
-        )
-    if agent_mapping["encoder"]:
-        env = OCAtariEncoderWrapper(
-            env,
-            config["encoder"]["max_objects"],
-            num_envs=n_envs,
-            method=agent_mapping["method"],
-            speed_scale=config["encoder"]["speed_scale"],
-            use_rgb=config["encoder"]["use_rgb"],
-            use_category=config["encoder"]["use_category"],
-        )
-
-    return env
-
-
-def create_model(agent_mapping, env):
-    model_path = "./weights"
-    if agent_mapping["policy"] is None:
-        model = NaiveAgent()
-    else:
-        model = PPO.load(
-            os.path.join(model_path, agent_mapping["name"]),
-            env=env,
-            seed=0,
-            custom_objects={
-                "observation_space": env.observation_space,
-                "action_space": env.action_space,
-            },
-        )
-    return model

@@ -8,13 +8,10 @@ import yaml
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.env_util import make_atari_env
-from stable_baselines3.common.vec_env import VecFrameStack
 
 from components.agent_mappings import get_agent_mapping
-from components.environment import make_oc_atari_env
 from components.schedulers import exponential_scheduler, get_lr, linear_scheduler
-from components.wrappers import OCAtariEncoderWrapper
+from components.utils import create_env
 
 
 # Optimize CPU performance - dynamic thread allocation
@@ -47,68 +44,6 @@ os.environ["OMP_NUM_THREADS"] = str(optimal_threads)
 os.environ["MKL_NUM_THREADS"] = str(optimal_threads)
 
 
-def create_env(args, config, agent_mapping, n_envs, game_name, seed):
-    """Create environment with given parameters"""
-    if args.agent == "cnn":
-        wrapper_kwargs = {
-            "frame_skip": 4 if "v4" in game_name else 5,
-            "terminal_on_life_loss": True if "v4" in game_name else False,
-        }
-        env_kwargs = (
-            {
-                "frameskip": 1,
-                "repeat_action_probability": 0.25,
-                "full_action_space": True,
-            }
-            if "v5" in game_name
-            else {}
-        )
-        env = make_atari_env(
-            game_name,
-            n_envs=n_envs,
-            seed=seed,
-            env_kwargs=env_kwargs,
-            wrapper_kwargs=wrapper_kwargs,
-        )
-        # Stack frames to encode temporal information
-        env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
-    else:
-        wrapper_kwargs = {
-            "max_pool": False,
-            "frame_skip": 4 if "NoFrameskip" in game_name else 1,
-            "noop_max": 30 if "v4" in game_name else 0,
-            "terminal_on_life_loss": True if "v4" in game_name else False,
-            "time_limit": 10000 if "NoFrameskip" in game_name else 2000,
-        }
-        oc_atari_kwargs = {
-            "mode": "ram",
-            "hud": False,
-            "obs_mode": "ori",
-        }
-        if "v5" in game_name:
-            oc_atari_kwargs["frameskip"] = 5
-            oc_atari_kwargs["repeat_action_probability"] = 0.25
-            oc_atari_kwargs["full_action_space"] = True
-        env = make_oc_atari_env(
-            game_name,
-            n_envs=n_envs,
-            seed=seed,
-            env_kwargs=oc_atari_kwargs,
-            wrapper_kwargs=wrapper_kwargs,
-        )
-    if agent_mapping["encoder"]:
-        env = OCAtariEncoderWrapper(
-            env,
-            config["encoder"]["max_objects"],
-            num_envs=n_envs,
-            method=agent_mapping["method"],
-            speed_scale=config["encoder"]["speed_scale"],
-            use_rgb=config["encoder"]["use_rgb"],
-            use_category=config["encoder"]["use_category"],
-        )
-    return env
-
-
 def train(args):
     # Load configuration
     with open("config.yaml", "r") as f:
@@ -131,13 +66,15 @@ def train(args):
     agent_mapping = get_agent_mapping(args.agent, game_name)
 
     # Create training environment
-    env = create_env(args, config, agent_mapping, n_envs, game_name, seed)
+    env = create_env(config, agent_mapping, n_envs, seed, train=True)
 
     # Create evaluation environment with different seed
-    eval_env = create_env(args, config, agent_mapping, n_envs, game_name, seed + 1000)
+    eval_env = create_env(config, agent_mapping, n_envs, seed + 1000, train=False)
 
-    # Check if the environment is valid
+    # Check if the environments are valid
     for environment in env.envs:
+        check_env(environment)
+    for environment in eval_env.envs:
         check_env(environment)
 
     # Set up TensorBoard log directory
