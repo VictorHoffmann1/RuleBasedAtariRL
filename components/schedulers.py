@@ -22,9 +22,14 @@ def exponential_scheduler(initial_value: float, final_value: float):
 
     return func
 
-
-def get_lr(scheduler, lr, step, final_lr=1e-5, total_steps=1e7):
+def get_lr(scheduler, lr, n_steps, final_lr=1e-5, total_steps=1e7):
     if scheduler == "exponential":
-        return lr * 10 ** ((np.log10(final_lr) - np.log10(lr)) / total_steps * step)
+        final_step = lr * 10 ** ((np.log10(final_lr) - np.log10(lr)) / total_steps * n_steps)
+        return exponential_scheduler(lr, final_step)
     elif scheduler == "linear":
-        return (final_lr - lr) / total_steps * step + lr
+        final_step = (final_lr - lr) / total_steps * n_steps + lr
+        return linear_scheduler(lr, final_step)
+    elif scheduler == "constant":
+        return lr
+    else:
+        raise ValueError(f"Unknown scheduler: {scheduler}. Use 'exponential', 'linear', or 'constant'.")

@@ -10,7 +10,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.env_checker import check_env
 
 from components.agent_mappings import get_agent_mapping
-from components.schedulers import exponential_scheduler, get_lr, linear_scheduler
+from components.schedulers import get_lr
 from components.utils import create_env
 
 
@@ -108,18 +108,13 @@ def train(args):
         agent_mapping["policy"],
         env,
         verbose=2,
-        learning_rate=exponential_scheduler(
+        learning_rate=get_lr(
+            model_params["scheduler"],
             model_params["learning_rate"],
-            get_lr(
-                "exponential",
-                model_params["learning_rate"],
-                config["training"]["num_steps"],
-                1e-5,
-                1e7,
-            ),
-        )
-        if model_params["scheduler"]
-        else model_params["learning_rate"],
+            config["training"]["num_steps"],
+            0,
+            1e7,
+        ),
         batch_size=model_params["ppo_batch_size"],
         n_epochs=model_params["n_epochs"],
         n_steps=model_params["n_steps"],
@@ -127,12 +122,13 @@ def train(args):
         gae_lambda=model_params["gae_lambda"],
         ent_coef=model_params["ent_coef"],
         vf_coef=model_params["vf_coef"],
-        clip_range=linear_scheduler(
+        clip_range=get_lr(
+            "linear",
             model_params["clip_range"],
-            model_params["clip_range"] * (1 - config["training"]["num_steps"] / 1e7),
-        )
-        if model_params["scheduler"]
-        else model_params["clip_range"],
+            config["training"]["num_steps"],
+            0.1 * model_params["clip_range"],
+            1e7,
+        ),
         max_grad_norm=model_params["max_grad_norm"],
         tensorboard_log=log_dir,
         seed=seed + 500,  # Different seed for model
