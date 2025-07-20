@@ -112,7 +112,7 @@ def train(args):
             model_params["scheduler"],
             model_params["learning_rate"],
             config["training"]["num_steps"],
-            0,
+            0 if model_params["scheduler"] == "linear" else 1e-5,
             1e7,
         ),
         batch_size=model_params["ppo_batch_size"],
