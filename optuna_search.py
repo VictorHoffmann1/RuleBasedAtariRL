@@ -22,9 +22,7 @@ def optuna_search(args):
     n_envs = config["environment"]["number"]
 
     # Get agent mappings configuration
-    agent_mapping = get_agent_mapping(
-        args.agent, game_name, model_extension="optuna"
-    )
+    agent_mapping = get_agent_mapping(args.agent, game_name, model_extension="optuna")
 
     # Early stopping configuration
     early_stop_enabled = getattr(args, "early_stop", True)
@@ -109,7 +107,7 @@ def optuna_search(args):
 
         # Sample hyperparameters
         n_steps = trial.suggest_categorical("n_steps", [128, 256, 512, 1024, 2048])
-        #ent_coef = trial.suggest_float("ent_coef", 1e-6, 1e-2, log=True)
+        # ent_coef = trial.suggest_float("ent_coef", 1e-6, 1e-2, log=True)
         clip_range = trial.suggest_float("clip_range", 0.4, 0.4)
         learning_rate = trial.suggest_float("learning_rate", 1e-4, 1.5e-3)
         batch_size = trial.suggest_categorical("batch_size", [128, 256])
@@ -133,7 +131,9 @@ def optuna_search(args):
             vf_coef=config["model"]["vf_coef"],
             clip_range=linear_scheduler(
                 clip_range,
-                get_lr("linear", clip_range, args.training_steps, clip_range * 0.1, 1e7)
+                get_lr(
+                    "linear", clip_range, args.training_steps, clip_range * 0.1, 1e7
+                ),
             ),
             max_grad_norm=config["model"]["max_grad_norm"],
             tensorboard_log=log_dir,

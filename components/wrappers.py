@@ -34,6 +34,7 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
         method="discovery",
         use_rgb=False,
         use_category=False,
+        use_events=False,
     ):
         super().__init__(venv)
         self.encoder = OCAtariEncoder(
@@ -43,6 +44,7 @@ class OCAtariEncoderWrapper(VecEnvWrapper):
             method=method,
             use_rgb=use_rgb,
             use_category=use_category,
+            use_events=use_events,
         )
         shape = (
             (

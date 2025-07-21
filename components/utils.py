@@ -67,6 +67,7 @@ def create_env(config, agent_mapping, n_envs, seed, train=True):
             speed_scale=config["encoder"]["speed_scale"],
             use_rgb=config["encoder"]["use_rgb"],
             use_category=config["encoder"]["use_category"],
+            use_events=config["encoder"]["use_events"],
         )
     return env
 

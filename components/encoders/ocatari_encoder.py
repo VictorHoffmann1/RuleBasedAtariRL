@@ -8,6 +8,9 @@ from ocatari.core import OCAtari
 class OCAtariEncoder:
     """Rule-based encoder for Atari games with batched environment support."""
 
+    IMG_WIDTH = 160  # Default Atari image width
+    IMG_HEIGHT = 210  # Default Atari image height
+
     def __init__(
         self,
         max_objects: int = 64,
@@ -16,20 +19,25 @@ class OCAtariEncoder:
         method: str = "discovery",
         use_rgb: bool = False,
         use_category: bool = False,
+        use_events: bool = False,
     ):
         self.num_envs = num_envs
         self.speed_scale = speed_scale
         self.n_features = 6 if method == "discovery" else 5
-        if use_rgb:
+        if use_rgb and method == "discovery":
             self.n_features += 3
-        if use_category:
+        if use_category and method == "discovery":
             self.n_features += 3
+        if use_events and method == "expert":
+            self.n_features += 4
+            self.left_wall = Object(4, 113.5, 8, 165, 0, 0)
+            self.right_wall = Object(156, 113.5, 8, 165, 0, 0)
+            self.top_wall = Object(80, 24, 160, 14, 0, 0)
         self.max_objects = max_objects
         self.method = method
         self.use_rgb = use_rgb
+        self.use_events = use_events
         self.use_category = use_category
-        self.img_width = 160  # Default Atari image width
-        self.img_height = 210  # Default Atari image height
 
         # Add caching for object extraction to avoid repeated wrapper traversal
         self._env_ocatari_cache = {}
@@ -66,12 +74,12 @@ class OCAtariEncoder:
                             break
                         object_vector = np.array(
                             [
-                                self.normalize(object.center[0], self.img_width, True),
-                                self.normalize(object.center[1], self.img_height, True),
+                                self.normalize(object.center[0], self.IMG_WIDTH, True),
+                                self.normalize(object.center[1], self.IMG_HEIGHT, True),
                                 self.normalize(object.dx, self.speed_scale, False),
                                 self.normalize(object.dy, self.speed_scale, False),
-                                self.normalize(object.w, self.img_width, False),
-                                self.normalize(object.h, self.img_height, False),
+                                self.normalize(object.w, self.IMG_WIDTH, False),
+                                self.normalize(object.h, self.IMG_HEIGHT, False),
                             ]
                         )
                         if self.use_rgb:
@@ -101,25 +109,54 @@ class OCAtariEncoder:
             elif self.method == "expert":
                 features = np.zeros(
                     (self.n_features)
-                )  # paddle_x, ball_x, ball_y, ball_dx, ball_dy
+                )  # paddle_x, ball_x, ball_y, ball_dx, ball_dy and optional events
+                # Events: ball -> block, ball -> player, ball -> wall and ball -> lost
                 features[1:3] = -2.0  # Initialize ball position to -2.0
                 player_found, ball_found = False, False
                 for object in objects:
+                    # In the objects list, the first object is always the player
+                    # and the second is always the ball.
                     if object.category == "Player":
+                        player_object = object
                         features[0] = self.normalize(
-                            object.center[0], self.img_width, True
+                            player_object.center[0], self.IMG_WIDTH, True
                         )
                         player_found = True
                     elif object.category == "Ball":
+                        ball_object = object
                         features[1] = self.normalize(
-                            object.center[0], self.img_width, True
+                            ball_object.center[0], self.IMG_WIDTH, True
                         )
                         features[2] = self.normalize(
-                            object.center[1], self.img_height, True
+                            ball_object.center[1], self.IMG_HEIGHT, True
                         )
-                        features[3] = self.normalize(object.dx, self.speed_scale, False)
-                        features[4] = self.normalize(object.dy, self.speed_scale, False)
+                        features[3] = self.normalize(
+                            ball_object.dx, self.speed_scale, False
+                        )
+                        features[4] = self.normalize(
+                            ball_object.dy, self.speed_scale, False
+                        )
                         ball_found = True
+                        if self.use_events:
+                            features[8] = 1.0
+                            if player_found:
+                                # Check if the ball is colliding with the player
+                                if self.is_collision(ball_object, player_object):
+                                    features[6] = 1.0
+                            # Check if the ball is colliding with the walls
+                            if any(
+                                [
+                                    self.is_collision(ball_object, self.left_wall),
+                                    self.is_collision(ball_object, self.right_wall),
+                                    self.is_collision(ball_object, self.top_wall),
+                                ]
+                            ):
+                                features[7] = 1.0
+                    elif object.category == "Block" and ball_found:
+                        # Check if the ball is colliding with a block
+                        if self.is_collision(ball_object, object):
+                            features[5] = 1.0
+                            break  # There can only be one block collision at a time
                     if player_found and ball_found:
                         break
 
@@ -171,3 +208,37 @@ class OCAtariEncoder:
             return np.clip(2 * (value / scale) - 1, -1, 1) if scale != 0 else 0
         else:
             return np.clip(value / scale, -1, 1) if scale != 0 else 0
+
+    @staticmethod
+    def is_collision(obj_1, obj_2):
+        pos_1 = np.array(obj_1.center)
+        pos_2 = np.array(obj_2.center)
+        speed_1 = np.array([obj_1.dx, obj_1.dy])
+        speed_2 = np.array([obj_2.dx, obj_2.dy])
+        size_1 = np.array([obj_1.w, obj_1.h])
+        size_2 = np.array([obj_2.w, obj_2.h])
+
+        cond1 = np.all(np.abs(pos_1 - pos_2) < (size_1 + size_2) / 2 + 1)
+        cond2 = np.all(
+            np.abs(pos_1 + speed_1 - pos_2 - speed_2) < (size_1 + size_2) / 2
+        )
+        return cond1 or cond2
+
+
+class Object:
+    """Represents an object in the OCAtari environment.
+
+    Attributes:
+        center (tuple): The center coordinates of the object (x, y).
+        w (float): Width of the object.
+        h (float): Height of the object.
+        dx (float): Horizontal speed of the object.
+        dy (float): Vertical speed of the object.
+    """
+
+    def __init__(self, x_center, y_center, width, height, dx, dy):
+        self.center = (x_center, y_center)
+        self.w = width
+        self.h = height
+        self.dx = dx
+        self.dy = dy

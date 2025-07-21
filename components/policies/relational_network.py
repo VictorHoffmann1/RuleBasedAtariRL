@@ -105,7 +105,7 @@ class RelationalNetwork(nn.Module):
         ]  # Return trimmed tensor and mask
 
     @staticmethod
-    def is_collision(x, y):
+    def is_collision(x, y, eps=1.0):
         """
         Check if two objects collide based on their positions, shapes and speeds.
         Args:
@@ -118,13 +118,27 @@ class RelationalNetwork(nn.Module):
         x_pos, x_speed, x_shape = x[..., :2], x[..., 2:4], x[..., 4:6]
         y_pos, y_speed, y_shape = y[..., :2], y[..., 2:4], y[..., 4:6]
 
-        pass
+        # Check if the objects collide / overlap
+        cond1 = torch.abs(x_pos - y_pos) < (x_shape + y_shape) / 2
+
+        # Check if there will be a collision in the next step, since there can be object detection errors
+        # when two objects touch, they can be detected as one single object
+        cond2 = (
+            torch.abs(x_pos + x_speed - y_pos - y_speed) < (x_shape + y_shape) / 2 + eps
+        )
+
+        return (cond1[..., 0] & cond1[..., 1]) | (cond2[..., 0] & cond2[..., 1])
 
 
 class TopKAttention(nn.Module):
+    """
+    Top-K attention mechanism to select important interactions.
+    This module computes pairwise attention scores and selects the top-k pairs.
+    """
+
     def __init__(self, input_dim, proj_dim, top_k, verbose=False):
         """
-        Optimized TopK attention with improved efficiency
+        Initialize the Top-K attention mechanism.
         """
         super().__init__()
         self.top_k = top_k

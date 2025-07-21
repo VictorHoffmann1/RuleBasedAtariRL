@@ -1,8 +1,8 @@
 environment:
   use_optimal_cores: false # Automatially changes n_envs based on CPU cores
   number: &num_envs 8 # Number of parallel environments if use_optimal_cores is false
-  game_name: "ALE/SpaceInvaders-v5" # Only use NoFrameskip versions
-  seed: 10
+  game_name: "ALE/Breakout-v5" # Only use NoFrameskip versions
+  seed: 42
 
 encoder:
   speed_scale: 8.0
@@ -10,12 +10,13 @@ encoder:
   max_objects: 32 # Maximum number of objects to encode for transformer / deepsets method
   use_rgb: false # Use RGB colors of objects
   use_category: false # Use object categories (paddle, ball, etc.) in the encoding
+  use_events: true # Use events (collisions, etc.) in the encoding
 
 model:
   # Global parameters
-  learning_rate: 0.0008  # Slightly reduced for more stable updates with more data
+  learning_rate: 0.001  # Slightly reduced for more stable updates with more data
   gamma: 0.99
-  scheduler: "exponential"
+  scheduler: "exponential"  # Use exponential decay for learning rate
 
   # Actor-Critic parameters (A2C and PPO)
   n_steps: 256
