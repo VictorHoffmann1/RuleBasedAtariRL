@@ -4,6 +4,7 @@ from components.environment import make_oc_atari_env
 from components.wrappers import OCAtariEncoderWrapper
 from stable_baselines3 import PPO
 from components.policies.naive_agent import NaiveAgent
+from components.policies.random_agent import RandomAgent
 
 
 def create_env(config, agent_mapping, n_envs, seed, train=True):
@@ -71,8 +72,10 @@ def create_env(config, agent_mapping, n_envs, seed, train=True):
 
 
 def load_model(env, agent_mapping, path=None, seed=0):
-    if agent_mapping["policy"] is None:
+    if agent_mapping["policy"] == "Naive":
         model = NaiveAgent()
+    elif agent_mapping["policy"] == "Random":
+        model = RandomAgent(num_actions=env.action_space.n, seed=seed)
     else:
         if path is None:
             raise ValueError("Model path must be provided for non-naive agents.")

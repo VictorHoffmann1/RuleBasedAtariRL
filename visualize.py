@@ -8,7 +8,7 @@ import cv2
 import argparse
 
 
-def test(args):
+def visualize(args):
     # Load configuration
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
@@ -217,4 +217,4 @@ if __name__ == "__main__":
         help="Frequency of verbose updates during testing.",
     )
     args = parser.parse_args()
-    test(args)
+    visualize(args)

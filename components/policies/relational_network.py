@@ -104,59 +104,21 @@ class RelationalNetwork(nn.Module):
             :, :max_valid
         ]  # Return trimmed tensor and mask
 
+    @staticmethod
+    def is_collision(x, y):
+        """
+        Check if two objects collide based on their positions, shapes and speeds.
+        Args:
+            x (torch.Tensor): Position tensor of shape (B, top_k, D).
+            y (torch.Tensor): Position tensor of shape (B, top_k, D).
+        Returns:
+            torch.Tensor: Boolean tensor indicating collisions, shape (B, top_k).
+        """
+        # Get positions, shapes and speeds
+        x_pos, x_speed, x_shape = x[..., :2], x[..., 2:4], x[..., 4:6]
+        y_pos, y_speed, y_shape = y[..., :2], y[..., 2:4], y[..., 4:6]
 
-class RelationalNetworkFeaturesExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space, n_features, hidden_dim, output_dim, top_k):
-        super().__init__(observation_space, features_dim=output_dim)
-        self.relational_network_encoder = RelationalNetwork(
-            n_features, hidden_dim, output_dim, top_k
-        )
-
-    def forward(self, observations):
-        return self.relational_network_encoder(observations)
-
-
-class CustomRelationalNetworkPolicy(ActorCriticPolicy):
-    def __init__(
-        self,
-        observation_space,
-        action_space,
-        lr_schedule,
-        n_features=6,
-        hidden_dim=64,
-        output_dim=32,
-        top_k=16,
-        **kwargs,
-    ):
-        kwargs["ortho_init"] = True
-        super().__init__(
-            observation_space,
-            action_space,
-            lr_schedule,
-            features_extractor_class=RelationalNetworkFeaturesExtractor,
-            features_extractor_kwargs=dict(
-                n_features=n_features,
-                hidden_dim=hidden_dim,
-                output_dim=output_dim,
-                top_k=top_k,
-            ),
-            **kwargs,
-        )
-
-    def reinitialize_weights(self):
-        """Reinitialize all weights in the policy network"""
-        # Reinitialize the relational network encoder
-        if hasattr(self.features_extractor, "relational_network_encoder"):
-            self.features_extractor.relational_network_encoder.init_weights()
-
-        # Reinitialize all linear layers in the policy
-        for module in self.modules():
-            if isinstance(module, torch.nn.Linear):
-                torch.nn.init.orthogonal_(
-                    module.weight, gain=torch.sqrt(torch.tensor(2.0))
-                )
-                if module.bias is not None:
-                    torch.nn.init.zeros_(module.bias)
+        pass
 
 
 class TopKAttention(nn.Module):
@@ -213,3 +175,57 @@ class TopKAttention(nn.Module):
             self.count += 1
 
         return topk_indices, topk_weights
+
+
+class RelationalNetworkFeaturesExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space, n_features, hidden_dim, output_dim, top_k):
+        super().__init__(observation_space, features_dim=output_dim)
+        self.relational_network_encoder = RelationalNetwork(
+            n_features, hidden_dim, output_dim, top_k
+        )
+
+    def forward(self, observations):
+        return self.relational_network_encoder(observations)
+
+
+class CustomRelationalNetworkPolicy(ActorCriticPolicy):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        lr_schedule,
+        n_features=6,
+        hidden_dim=64,
+        output_dim=32,
+        top_k=16,
+        **kwargs,
+    ):
+        kwargs["ortho_init"] = True
+        super().__init__(
+            observation_space,
+            action_space,
+            lr_schedule,
+            features_extractor_class=RelationalNetworkFeaturesExtractor,
+            features_extractor_kwargs=dict(
+                n_features=n_features,
+                hidden_dim=hidden_dim,
+                output_dim=output_dim,
+                top_k=top_k,
+            ),
+            **kwargs,
+        )
+
+    def reinitialize_weights(self):
+        """Reinitialize all weights in the policy network"""
+        # Reinitialize the relational network encoder
+        if hasattr(self.features_extractor, "relational_network_encoder"):
+            self.features_extractor.relational_network_encoder.init_weights()
+
+        # Reinitialize all linear layers in the policy
+        for module in self.modules():
+            if isinstance(module, torch.nn.Linear):
+                torch.nn.init.orthogonal_(
+                    module.weight, gain=torch.sqrt(torch.tensor(2.0))
+                )
+                if module.bias is not None:
+                    torch.nn.init.zeros_(module.bias)

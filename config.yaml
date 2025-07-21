@@ -1,7 +1,7 @@
 environment:
   use_optimal_cores: false # Automatially changes n_envs based on CPU cores
   number: &num_envs 8 # Number of parallel environments if use_optimal_cores is false
-  game_name: "ALE/Breakout-v5" # Only use NoFrameskip versions
+  game_name: "ALE/SpaceInvaders-v5" # Only use NoFrameskip versions
   seed: 10
 
 encoder:

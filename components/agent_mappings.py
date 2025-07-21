@@ -105,14 +105,22 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "use_feature_kwargs": False,
             "method": None,
         }
+    elif key == "random":
+        agent_mapping = {
+            "encoder": True,
+            "name": "random",
+            "policy": "Random",
+            "use_feature_kwargs": False,
+            "method": "discovery",
+        }
     elif key == "naive":
         raise NotImplementedError(
             "Naive agent is not implemented in this version. Please use a different agent type."
         )
         agent_mapping = {
             "encoder": True,
-            "name": "OC_" + None,  # No model to load for rule-based agent
-            "policy": None,
+            "name": "naive",
+            "policy": "Naive",
             "method": "discovery",
         }
     else:
