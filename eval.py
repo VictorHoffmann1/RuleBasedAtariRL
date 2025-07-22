@@ -202,7 +202,7 @@ if __name__ == "__main__":
         None,
         agent=args.agent,
         model_extension=args.model,
-        n_seeds=args.n_seeds,
+        n_eval_episodes=args.n_seeds,
         deterministic=args.deterministic,
-        verbose=True,
+        warn=True,
     )
