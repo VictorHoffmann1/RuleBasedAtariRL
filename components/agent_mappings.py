@@ -5,6 +5,7 @@ from components.policies.relational_network import CustomRelationalNetworkPolicy
 from components.policies.sa_deepsets import CustomSelfAttentionDeepSetsPolicy
 from components.policies.set_transformer import CustomSetTransformerPolicy
 from components.policies.transformer import CustomTransformerPolicy
+from components.policies.lstm_relational_network import LSTMRelationalNetworkPolicy
 
 
 def get_agent_mapping(key, game_name, model_extension=""):
@@ -33,6 +34,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "OC_" + game_name + "_transformer" + version + model_extension,
             "policy": CustomTransformerPolicy,
+            "n_stack": None,
             "use_feature_kwargs": True,
             "method": "discovery",
         }
@@ -41,6 +43,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "OC_" + game_name + "_deep_sets" + version + model_extension,
             "policy": CustomDeepSetPolicy,
+            "n_stack": None,
             "use_feature_kwargs": True,
             "method": "discovery",
         }
@@ -53,6 +56,20 @@ def get_agent_mapping(key, game_name, model_extension=""):
             + version
             + model_extension,
             "policy": CustomRelationalNetworkPolicy,
+            "n_stack": None,
+            "use_feature_kwargs": True,
+            "method": "discovery",
+        }
+    elif key == "lstm_relational_net":
+        agent_mapping = {
+            "encoder": True,
+            "name": "OC_"
+            + game_name
+            + "_lstm_relational_network"
+            + version
+            + model_extension,
+            "policy": LSTMRelationalNetworkPolicy,
+            "n_stack": 20,
             "use_feature_kwargs": True,
             "method": "discovery",
         }
@@ -61,6 +78,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "OC_" + game_name + "_set_transformer" + version + model_extension,
             "policy": CustomSetTransformerPolicy,
+            "n_stack": None,
             "use_feature_kwargs": True,
             "method": "discovery",
         }
@@ -70,6 +88,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "name": "OC_" + game_name + "_sa_deep_sets" + version + model_extension,
             "policy": CustomSelfAttentionDeepSetsPolicy,
             "use_feature_kwargs": True,
+            "n_stack": None,
             "method": "discovery",
         }
     elif key == "lstm":
@@ -78,6 +97,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "name": "OC_" + game_name + "_lstm" + version + model_extension,
             "policy": CustomLSTMPolicy,
             "use_feature_kwargs": True,
+            "n_stack": None,
             "method": "discovery",
         }
     elif key == "gnn":
@@ -85,6 +105,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "OC_" + game_name + "_gnn" + version + model_extension,
             "policy": CustomGNNPolicy,
+            "n_stack": None,
             "use_feature_kwargs": True,
             "method": "discovery",
         }
@@ -93,6 +114,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "OC_" + game_name + "_mlp" + version + model_extension,
             "policy": "MlpPolicy",
+            "n_stack": None,
             "use_feature_kwargs": False,
             "method": "expert",
         }
@@ -110,6 +132,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "random",
             "policy": "Random",
+            "n_stack": None,
             "use_feature_kwargs": False,
             "method": "discovery",
         }
@@ -121,6 +144,7 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "naive",
             "policy": "Naive",
+            "n_stack": None,
             "method": "discovery",
         }
     else:

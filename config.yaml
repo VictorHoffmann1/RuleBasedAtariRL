@@ -1,7 +1,7 @@
 environment:
   use_optimal_cores: false # Automatially changes n_envs based on CPU cores
   number: &num_envs 8 # Number of parallel environments if use_optimal_cores is false
-  game_name: "ALE/Breakout-v5" # Only use NoFrameskip versions
+  game_name: "BreakoutNoFrameskip-v4" # Only use NoFrameskip versions
   seed: 42
 
 encoder:
@@ -10,7 +10,7 @@ encoder:
   max_objects: 32 # Maximum number of objects to encode for transformer / deepsets method
   use_rgb: false # Use RGB colors of objects
   use_category: false # Use object categories (paddle, ball, etc.) in the encoding
-  use_events: true # Use events (collisions, etc.) in the encoding
+  use_events: false # Use events (collisions, etc.) in the encoding
 
 model:
   # Global parameters
@@ -25,8 +25,8 @@ model:
   vf_coef: 0.5
   max_grad_norm: 0.5
   ppo_batch_size: 256  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
-  n_epochs: 5  # Reduced: with more data per rollout, fewer epochs needed
-  clip_range: 0.1
+  n_epochs: 4  # Reduced: with more data per rollout, fewer epochs needed
+  clip_range: 0.4
 
 training:
   num_steps: 10000000 # Number of episodes to train

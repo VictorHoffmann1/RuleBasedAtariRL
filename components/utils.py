@@ -34,8 +34,6 @@ def create_env(config, agent_mapping, n_envs, seed, train=True):
             env_kwargs=env_kwargs,
             wrapper_kwargs=wrapper_kwargs,
         )
-        # Stack frames to encode temporal information
-        env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
         if train:
             env = VecTransposeImage(env)
     else:
@@ -69,6 +67,9 @@ def create_env(config, agent_mapping, n_envs, seed, train=True):
             use_category=config["encoder"]["use_category"],
             use_events=config["encoder"]["use_events"],
         )
+    if agent_mapping["n_stack"] is not None:
+        # Stack frames to encode temporal information
+        env = VecFrameStack(env, n_stack=agent_mapping["n_stack"])
     return env
 
 
