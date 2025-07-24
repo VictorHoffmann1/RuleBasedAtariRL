@@ -5,6 +5,8 @@ from components.wrappers import OCAtariEncoderWrapper
 from stable_baselines3 import PPO
 from components.policies.naive_agent import NaiveAgent
 from components.policies.random_agent import RandomAgent
+from components.agents.OCZero.a2c import OCZeroA2C
+from components.agents.OCZero.oczero import OCZeroPolicy
 
 
 def create_env(config, agent_mapping, n_envs, seed, train=True):
@@ -78,6 +80,18 @@ def load_model(env, agent_mapping, path=None, seed=0):
         model = NaiveAgent()
     elif agent_mapping["policy"] == "Random":
         model = RandomAgent(num_actions=env.action_space.n, seed=seed)
+    elif agent_mapping["policy"] == OCZeroPolicy:
+        if path is None:
+            raise ValueError("Model path must be provided for OCZeroPolicy.")
+        model = OCZeroA2C.load(
+            path,
+            env - env,
+            seed=seed,
+            custom_objects={
+                "observation_space": env.observation_space,
+                "action_space": env.action_space,
+            },
+        )
     else:
         if path is None:
             raise ValueError("Model path must be provided for non-naive agents.")

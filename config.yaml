@@ -1,7 +1,7 @@
 environment:
   use_optimal_cores: false # Automatially changes n_envs based on CPU cores
   number: &num_envs 8 # Number of parallel environments if use_optimal_cores is false
-  game_name: "BreakoutNoFrameskip-v4" # Only use NoFrameskip versions
+  game_name: "ALE/Breakout-v5" # Only use NoFrameskip versions
   seed: 42
 
 encoder:
@@ -13,20 +13,36 @@ encoder:
   use_events: false # Use events (collisions, etc.) in the encoding
 
 model:
-  # Global parameters
-  learning_rate: 0.001  # Slightly reduced for more stable updates with more data
-  gamma: 0.99
-  scheduler: "exponential"  # Use exponential decay for learning rate
+  # PPO Parameters
+  PPO:
+    learning_rate: 0.001  # Slightly reduced for more stable updates with more data
+    gamma: 0.99
+    scheduler: "exponential"  # Use exponential decay for learning rate
+    n_steps: 256
+    gae_lambda: 0.95
+    ent_coef: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+    ppo_batch_size: 256  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
+    n_epochs: 4  # Reduced: with more data per rollout, fewer epochs needed
+    clip_range: 0.4
 
-  # Actor-Critic parameters (A2C and PPO)
-  n_steps: 256
-  gae_lambda: 0.95
-  ent_coef: 0.01
-  vf_coef: 0.5
-  max_grad_norm: 0.5
-  ppo_batch_size: 256  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
-  n_epochs: 4  # Reduced: with more data per rollout, fewer epochs needed
-  clip_range: 0.4
+  # OCZero parameters
+  OCZero:
+    learning_rate: 0.001  # Slightly reduced for more stable updates with more data
+    gamma: 0.99
+    scheduler: "exponential_warmup"  # Use exponential decay for learning rate
+    n_steps: 256
+    gae_lambda: 0.95
+    ent_coef: 0.01
+    vf_coef: 0.5
+    max_grad_norm: 0.5
+    ppo_batch_size: 256  # Increased: should be 1/8 to 1/32 of total rollout (16,384)
+    n_epochs: 4  # Reduced: with more data per rollout, fewer epochs needed
+    clip_range: 0.4
+    proj_coef: 1.0
+    action_pred_coef: 0.1
+    reward_pred_coef: 0.1
 
 training:
   num_steps: 10000000 # Number of episodes to train

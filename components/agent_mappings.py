@@ -6,6 +6,7 @@ from components.policies.sa_deepsets import CustomSelfAttentionDeepSetsPolicy
 from components.policies.set_transformer import CustomSetTransformerPolicy
 from components.policies.transformer import CustomTransformerPolicy
 from components.policies.lstm_relational_network import LSTMRelationalNetworkPolicy
+from components.agents.OCZero.oczero import OCZeroPolicy
 
 
 def get_agent_mapping(key, game_name, model_extension=""):
@@ -56,6 +57,15 @@ def get_agent_mapping(key, game_name, model_extension=""):
             + version
             + model_extension,
             "policy": CustomRelationalNetworkPolicy,
+            "n_stack": None,
+            "use_feature_kwargs": True,
+            "method": "discovery",
+        }
+    elif key == "oczero":
+        agent_mapping = {
+            "encoder": True,
+            "name": "OC_" + game_name + "OCZero" + version + model_extension,
+            "policy": OCZeroPolicy,
             "n_stack": None,
             "use_feature_kwargs": True,
             "method": "discovery",
