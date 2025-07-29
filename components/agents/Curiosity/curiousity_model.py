@@ -1,12 +1,15 @@
+from typing import Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.utils import get_device
 
 
-class RelationalNetwork(nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, top_k=64):
+class RepresentationNetwork(nn.Module):
+    def __init__(self, input_dim, hidden_dim=128, output_dim=64, top_k=64):
         super().__init__()
         # Self-Interaction MLP
         self.phi = nn.Sequential(
@@ -38,12 +41,16 @@ class RelationalNetwork(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(
                 hidden_dim,  # Output dimension of the global MLP
-                hidden_dim,
+                output_dim,  # Final output dimension
             ),
         )
 
-        self.hidden_dim = hidden_dim
+        self.pairwise_auxiliary_mlp = nn.Linear(hidden_dim, 2)
+        self.interaction_feat = None  # Store interaction features for auxiliary loss
+        self.x_i, self.x_j = None, None  # Initialize to None for later use
+        self.auxiliary_criterion = nn.BCEWithLogitsLoss()
 
+        self.hidden_dim = hidden_dim
         self.init_weights()
 
     def init_weights(self):
@@ -68,23 +75,24 @@ class RelationalNetwork(nn.Module):
 
         # Vectorized indexing
         i_idx, j_idx = ij_idxs[..., 0], ij_idxs[..., 1]
-        x_i = x[batch_indices, i_idx]  # (B, top_k, 6)
-        x_j = x[batch_indices, j_idx]  # (B, top_k, 6)
+        self.x_i = x[batch_indices, i_idx]  # (B, top_k, 6)
+        self.x_j = x[batch_indices, j_idx]  # (B, top_k, 6)
 
         # Parallel feature computation
-        feat_self = self.phi(x_i)  # (B, top_k, H)
-        feat_pair = self.xi(torch.cat([x_i, x_j], dim=-1))  # (B, top_k, H)
+        feat_self = self.phi(self.x_i)  # (B, top_k, H)
+        feat_pair = self.xi(torch.cat([self.x_i, self.x_j], dim=-1))  # (B, top_k, H)
 
         # Efficient conditional selection
-        interaction_feat = torch.where(
+        self.interaction_feat = torch.where(
             self_mask.unsqueeze(-1), feat_self, feat_pair
         )  # (B, top_k, H)
 
         # Optimized weighted pooling
-        pooled = torch.sum(interaction_feat * ij_weights.unsqueeze(-1), dim=1)  # (B, H)
+        pooled = torch.sum(
+            self.interaction_feat * ij_weights.unsqueeze(-1), dim=1
+        )  # (B, H)
 
-        # Final MLP
-        return pooled + self.rho(pooled)  # (B, hidden_dim)
+        return self.rho(pooled)
 
     @staticmethod
     def trim(x):
@@ -103,31 +111,6 @@ class RelationalNetwork(nn.Module):
         return x[:, :max_valid, :], obj_padding_mask[
             :, :max_valid
         ]  # Return trimmed tensor and mask
-
-    @staticmethod
-    def is_collision(x, y, eps=1.0):
-        """
-        Check if two objects collide based on their positions, shapes and speeds.
-        Args:
-            x (torch.Tensor): Position tensor of shape (B, top_k, D).
-            y (torch.Tensor): Position tensor of shape (B, top_k, D).
-        Returns:
-            torch.Tensor: Boolean tensor indicating collisions, shape (B, top_k).
-        """
-        # Get positions, shapes and speeds
-        x_pos, x_speed, x_shape = x[..., :2], x[..., 2:4], x[..., 4:6]
-        y_pos, y_speed, y_shape = y[..., :2], y[..., 2:4], y[..., 4:6]
-
-        # Check if the objects collide / overlap
-        cond1 = torch.abs(x_pos - y_pos) < (x_shape + y_shape) / 2
-
-        # Check if there will be a collision in the next step, since there can be object detection errors
-        # when two objects touch, they can be detected as one single object
-        cond2 = (
-            torch.abs(x_pos + x_speed - y_pos - y_speed) < (x_shape + y_shape) / 2 + eps
-        )
-
-        return (cond1[..., 0] & cond1[..., 1]) | (cond2[..., 0] & cond2[..., 1])
 
 
 class TopKAttention(nn.Module):
@@ -191,18 +174,49 @@ class TopKAttention(nn.Module):
         return topk_indices, topk_weights
 
 
-class RelationalNetworkFeaturesExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space, n_features, hidden_dim, top_k):
-        super().__init__(observation_space, features_dim=hidden_dim)
-        self.relational_network_encoder = RelationalNetwork(
-            n_features, hidden_dim, top_k
+class CuriosityModule(nn.Module):
+    def __init__(self, input_dim, hidden_dim, action_space_size):
+        super().__init__()
+        self.action_space_size = action_space_size
+
+        # Predicts the action that caused transition from prev_state to current_state
+        self.action_predictor = nn.Sequential(
+            nn.Linear(2 * input_dim, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, action_space_size),
         )
 
+        # Predicts current state from previous state + action
+        self.state_predictor = nn.Sequential(
+            nn.Linear(input_dim + action_space_size, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, input_dim),
+        )
+
+    def forward(self, hidden_state, action, next_hidden_state):
+        one_hot_action = F.one_hot(action, num_classes=self.action_space_size).float()
+        predicted_action = self.action_predictor(
+            torch.cat([hidden_state, next_hidden_state], dim=-1)
+        )
+        predicted_state = self.state_predictor(
+            torch.cat([hidden_state, one_hot_action], dim=-1)
+        )
+
+        action_loss = F.cross_entropy(predicted_action, action.long())
+        state_loss = torch.mean((predicted_state - next_hidden_state) ** 2, dim=-1)
+        return action_loss, state_loss
+
+
+class FeaturesExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space, n_features, hidden_dim, output_dim, top_k):
+        super().__init__(observation_space, features_dim=output_dim)
+        self.encoder = RepresentationNetwork(n_features, hidden_dim, output_dim, top_k)
+
     def forward(self, observations):
-        return self.relational_network_encoder(observations)
+        return self.encoder(observations)
 
 
-class CustomRelationalNetworkPolicy(ActorCriticPolicy):
+class CuriosityPolicy(ActorCriticPolicy):
     def __init__(
         self,
         observation_space,
@@ -210,6 +224,7 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
         lr_schedule,
         n_features=6,
         hidden_dim=64,
+        output_dim=64,
         top_k=16,
         **kwargs,
     ):
@@ -218,14 +233,17 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
             observation_space,
             action_space,
             lr_schedule,
-            features_extractor_class=RelationalNetworkFeaturesExtractor,
+            features_extractor_class=FeaturesExtractor,
             features_extractor_kwargs=dict(
                 n_features=n_features,
                 hidden_dim=hidden_dim,
+                output_dim=output_dim,
                 top_k=top_k,
             ),
             **kwargs,
         )
+
+        self.curiosity_module = CuriosityModule(output_dim, hidden_dim, action_space.n)
 
     def reinitialize_weights(self):
         """Reinitialize all weights in the policy network"""
@@ -241,3 +259,11 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
                 )
                 if module.bias is not None:
                     torch.nn.init.zeros_(module.bias)
+
+    def curiosity_loss(self, state, action, next_state):
+        """
+        Compute the curiosity loss based on the hidden state, action, and next hidden state.
+        """
+        hidden_state = self.features_extractor(state)
+        next_hidden_state = self.features_extractor(next_state)
+        return self.curiosity_module(hidden_state, action, next_hidden_state)

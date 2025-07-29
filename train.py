@@ -12,8 +12,11 @@ from stable_baselines3.common.env_checker import check_env
 from components.agent_mappings import get_agent_mapping
 from components.schedulers import get_lr
 from components.utils import create_env
+
 from components.agents.OCZero.ppo import OCZeroPPO
 from components.agents.OCZero.oczero import OCZeroPolicy
+from components.agents.Curiosity.curiousity_model import CuriosityPolicy
+from components.agents.Curiosity.ppo import CuriosityPPO
 
 
 # Optimize CPU performance - dynamic thread allocation
@@ -96,7 +99,84 @@ def train(args):
         deterministic=True,
     )
 
-    if agent_mapping["policy"] != OCZeroPolicy:
+    if agent_mapping["policy"] == OCZeroPolicy:
+        print("Using OCZeroPPO for training")
+        model_params = config["model"]["OCZero"]
+        model = OCZeroPPO(
+            env,
+            verbose=2,
+            learning_rate=get_lr(
+                model_params["scheduler"],
+                model_params["learning_rate"],
+                config["training"]["num_steps"],
+                0 if model_params["scheduler"] == "linear" else 1e-5,
+                1e7,
+            ),
+            batch_size=model_params["ppo_batch_size"],
+            n_epochs=model_params["n_epochs"],
+            n_steps=model_params["n_steps"],
+            gamma=model_params["gamma"],
+            gae_lambda=model_params["gae_lambda"],
+            ent_coef=model_params["ent_coef"],
+            vf_coef=model_params["vf_coef"],
+            proj_coef=1.0,
+            collision_coef=1.0,
+            closer_coef=1.0,
+            reward_pred_coef=1.0,
+            clip_range=get_lr(
+                "linear",
+                model_params["clip_range"],
+                config["training"]["num_steps"],
+                0.1 * model_params["clip_range"],
+                1e7,
+            ),
+            max_grad_norm=model_params["max_grad_norm"],
+            tensorboard_log=log_dir,
+            seed=seed + 500,  # Different seed for model
+            policy_kwargs={"n_features": n_features}
+            if agent_mapping["use_feature_kwargs"]
+            else {},
+        )
+    elif agent_mapping["policy"] == CuriosityPolicy:
+        model_params = config["model"]["PPO"]
+        print("Training configuration:")
+        print(f"  - Environments: {n_envs}")
+        print(f"  - Batch size: {model_params['ppo_batch_size']}")
+        print(f"  - Steps per rollout: {model_params['n_steps']}")
+        print(f"  - Total rollout size: {n_envs * model_params['n_steps']}")
+        print(f"  - PyTorch threads: {torch.get_num_threads()}")
+        model = CuriosityPPO(
+            env,
+            verbose=2,
+            learning_rate=get_lr(
+                model_params["scheduler"],
+                model_params["learning_rate"],
+                config["training"]["num_steps"],
+                0 if model_params["scheduler"] == "linear" else 1e-5,
+                1e7,
+            ),
+            batch_size=model_params["ppo_batch_size"],
+            n_epochs=model_params["n_epochs"],
+            n_steps=model_params["n_steps"],
+            gamma=model_params["gamma"],
+            gae_lambda=model_params["gae_lambda"],
+            ent_coef=model_params["ent_coef"],
+            vf_coef=model_params["vf_coef"],
+            clip_range=get_lr(
+                "linear",
+                model_params["clip_range"],
+                config["training"]["num_steps"],
+                0.1 * model_params["clip_range"],
+                1e7,
+            ),
+            max_grad_norm=model_params["max_grad_norm"],
+            tensorboard_log=log_dir,
+            seed=seed + 500,  # Different seed for model
+            policy_kwargs={"n_features": n_features}
+            if agent_mapping["use_feature_kwargs"]
+            else {},
+        )
+    else:
         model_params = config["model"]["PPO"]
         print("Training configuration:")
         print(f"  - Environments: {n_envs}")
@@ -136,47 +216,10 @@ def train(args):
             if agent_mapping["use_feature_kwargs"]
             else {},
         )
-    else:
-        print("Using OCZeroPPO for training")
-        model_params = config["model"]["OCZero"]
-        model = OCZeroPPO(
-            env,
-            verbose=2,
-            learning_rate=get_lr(
-                model_params["scheduler"],
-                model_params["learning_rate"],
-                config["training"]["num_steps"],
-                0 if model_params["scheduler"] == "linear" else 1e-5,
-                1e7,
-            ),
-            batch_size=model_params["ppo_batch_size"],
-            n_epochs=model_params["n_epochs"],
-            n_steps=model_params["n_steps"],
-            gamma=model_params["gamma"],
-            gae_lambda=model_params["gae_lambda"],
-            ent_coef=model_params["ent_coef"],
-            vf_coef=model_params["vf_coef"],
-            proj_coef=model_params["proj_coef"],
-            action_pred_coef=model_params["action_pred_coef"],
-            reward_pred_coef=model_params["reward_pred_coef"],
-            clip_range=get_lr(
-                "linear",
-                model_params["clip_range"],
-                config["training"]["num_steps"],
-                0.1 * model_params["clip_range"],
-                1e7,
-            ),
-            max_grad_norm=model_params["max_grad_norm"],
-            tensorboard_log=log_dir,
-            seed=seed + 500,  # Different seed for model
-            policy_kwargs={"n_features": n_features}
-            if agent_mapping["use_feature_kwargs"]
-            else {},
-        )
 
     model.learn(
         total_timesteps=config["training"]["num_steps"],
-        # callback=eval_callback,
+        callback=eval_callback,
         tb_log_name=agent_mapping["name"],
         progress_bar=True,
     )

@@ -7,6 +7,7 @@ from components.policies.set_transformer import CustomSetTransformerPolicy
 from components.policies.transformer import CustomTransformerPolicy
 from components.policies.lstm_relational_network import LSTMRelationalNetworkPolicy
 from components.agents.OCZero.oczero import OCZeroPolicy
+from components.agents.Curiosity.curiousity_model import CuriosityPolicy
 
 
 def get_agent_mapping(key, game_name, model_extension=""):
@@ -66,6 +67,15 @@ def get_agent_mapping(key, game_name, model_extension=""):
             "encoder": True,
             "name": "OC_" + game_name + "OCZero" + version + model_extension,
             "policy": OCZeroPolicy,
+            "n_stack": None,
+            "use_feature_kwargs": True,
+            "method": "discovery",
+        }
+    elif key == "curiosity":
+        agent_mapping = {
+            "encoder": True,
+            "name": "OC_" + game_name + "Curiosity" + version + model_extension,
+            "policy": CuriosityPolicy,
             "n_stack": None,
             "use_feature_kwargs": True,
             "method": "discovery",

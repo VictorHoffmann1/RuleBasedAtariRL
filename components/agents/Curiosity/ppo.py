@@ -2,17 +2,16 @@ from typing import Any, Optional, Union
 
 from stable_baselines3.ppo import PPO
 from stable_baselines3.common.utils import explained_variance
-from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.type_aliases import GymEnv, Schedule
 from gymnasium import spaces
-from components.agents.OCZero.oczero import OCZeroPolicy
-from components.agents.OCZero.replay_buffer import BiasedReplayBuffer
+from components.agents.Curiosity.curiousity_model import CuriosityPolicy
+from components.agents.Curiosity.rollout_buffer import CuriosityRolloutBuffer
 import torch
 import torch.nn.functional as F
 import numpy as np
 
 
-class OCZeroPPO(PPO):
+class CuriosityPPO(PPO):
     def __init__(
         self,
         env: Union[GymEnv, str],
@@ -27,16 +26,12 @@ class OCZeroPPO(PPO):
         normalize_advantage: bool = True,
         ent_coef: float = 0.0,
         vf_coef: float = 0.5,
-        n_aux_epochs: int = 20,
-        aux_batch_size: int = 32,
-        proj_coef: float = 1.0,
-        reward_pred_coef: float = 1.0,
-        collision_coef: float = 1.0,
-        closer_coef: float = 1.0,
+        action_loss_coef: float = 0.1,
+        state_loss_coef: float = 0.1,
+        curiosity_reward_coef: float = 0.25,
         max_grad_norm: float = 0.5,
         use_sde: bool = False,
         sde_sample_freq: int = -1,
-        rollout_buffer_class: Optional[type[RolloutBuffer]] = None,
         rollout_buffer_kwargs: Optional[dict[str, Any]] = None,
         target_kl: Optional[float] = None,
         stats_window_size: int = 100,
@@ -48,7 +43,7 @@ class OCZeroPPO(PPO):
         _init_setup_model: bool = True,
     ):
         super().__init__(
-            OCZeroPolicy,
+            CuriosityPolicy,
             env,
             learning_rate,
             n_steps,
@@ -64,7 +59,7 @@ class OCZeroPPO(PPO):
             max_grad_norm,
             use_sde,
             sde_sample_freq,
-            rollout_buffer_class,
+            CuriosityRolloutBuffer,
             rollout_buffer_kwargs,
             target_kl,
             stats_window_size,
@@ -76,28 +71,157 @@ class OCZeroPPO(PPO):
             _init_setup_model=_init_setup_model,
         )
 
-        self.proj_coef = proj_coef
-        self.reward_pred_coef = reward_pred_coef
-        self.collision_coef = collision_coef
-        self.closer_coef = closer_coef
+        self.action_loss_coef = action_loss_coef
+        self.state_loss_coef = state_loss_coef
+        self.curiosity_reward_coef = curiosity_reward_coef
 
-        self.n_aux_epochs = n_aux_epochs
-        self.aux_batch_size = aux_batch_size
-        self.replay_buffer = BiasedReplayBuffer(
-            buffer_size=2000,
-            observation_space=env.observation_space,
-            action_space=env.action_space,
-            device=device,
-            non_zero_reward_bias=0.33,
-        )
+    def collect_rollouts(
+        self,
+        env,
+        callback,
+        rollout_buffer,
+        n_rollout_steps: int,
+    ) -> bool:
+        """
+        Collect experiences using the current policy and fill a rollout buffer.
+        This method computes curiosity-driven rewards and adds them to environment rewards.
+        """
+        assert self._last_obs is not None, "No previous observation was provided"
+        # Switch to eval mode (this affects batch norm / dropout)
+        self.policy.set_training_mode(False)
+
+        n_steps = 0
+        rollout_buffer.reset()
+        # Sample new weights for the state dependent exploration
+        if self.use_sde:
+            self.policy.reset_noise(env.num_envs)
+
+        callback.on_rollout_start()
+
+        while n_steps < n_rollout_steps:
+            if (
+                self.use_sde
+                and self.sde_sample_freq > 0
+                and n_steps % self.sde_sample_freq == 0
+            ):
+                # Sample a new noise matrix
+                self.policy.reset_noise(env.num_envs)
+
+            with torch.no_grad():
+                # Convert to pytorch tensor or to TensorDict
+                obs_tensor = torch.as_tensor(self._last_obs, device=self.device)
+                actions, values, log_probs = self.policy(obs_tensor)
+
+            actions = actions.cpu().numpy()
+
+            # Rescale and perform action
+            clipped_actions = actions
+            # Clip the actions to avoid out of bound error
+            if isinstance(self.action_space, spaces.Box):
+                clipped_actions = np.clip(
+                    actions, self.action_space.low, self.action_space.high
+                )
+
+            new_obs, rewards, dones, infos = env.step(clipped_actions)
+
+            self.num_timesteps += env.num_envs
+
+            # Give access to local variables
+            callback.update_locals(locals())
+            if callback.on_step() is False:
+                return False
+
+            self._update_info_buffer(infos)
+            n_steps += 1
+
+            if isinstance(self.action_space, spaces.Discrete):
+                # Reshape in case of discrete action
+                actions = actions.reshape(-1, 1)
+
+            # Compute curiosity reward
+            curiosity_rewards = self._compute_curiosity_reward(
+                self._last_obs, actions, new_obs
+            )
+
+            # Add curiosity reward to environment reward
+            augmented_rewards = rewards + curiosity_rewards
+
+            # Handle timeout by bootstrapping with value function
+            # see GitHub issue #633
+            for idx, done in enumerate(dones):
+                if (
+                    done
+                    and infos[idx].get("terminal_observation") is not None
+                    and infos[idx].get("TimeLimit.truncated", False)
+                ):
+                    terminal_obs = self.policy.obs_to_tensor(
+                        infos[idx]["terminal_observation"]
+                    )[0]
+                    with torch.no_grad():
+                        terminal_value = self.policy.predict_values(terminal_obs)[0]  # type: ignore[arg-type]
+                    augmented_rewards[idx] += self.gamma * terminal_value
+
+            rollout_buffer.add(
+                self._last_obs,  # type: ignore[arg-type]
+                actions,
+                augmented_rewards,  # Use augmented rewards with curiosity
+                self._last_episode_starts,  # type: ignore[arg-type]
+                values,
+                log_probs,
+                next_obs=new_obs,  # Pass next observation for curiosity computation
+            )
+            self._last_obs = new_obs  # type: ignore[assignment]
+            self._last_episode_starts = dones
+
+        with torch.no_grad():
+            # Compute value for the last timestep
+            values = self.policy.predict_values(
+                torch.as_tensor(new_obs, device=self.device)
+            )  # type: ignore[arg-type]
+
+        rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
+
+        callback.on_rollout_end()
+
+        return True
+
+    def _compute_curiosity_reward(self, obs, actions, next_obs):
+        """
+        Compute curiosity-driven intrinsic reward based on prediction error.
+
+        Args:
+            obs: Current observations
+            actions: Actions taken
+            next_obs: Next observations
+
+        Returns:
+            Curiosity rewards for each environment
+        """
+        with torch.no_grad():
+            # Convert to tensors
+            obs_tensor = torch.as_tensor(obs, device=self.device).float()
+            action_tensor = (
+                torch.as_tensor(actions, device=self.device).long().flatten()
+            )
+            next_obs_tensor = torch.as_tensor(next_obs, device=self.device).float()
+
+            # Compute curiosity loss (forward and inverse model prediction errors)
+            _, state_loss = self.policy.curiosity_loss(
+                obs_tensor, action_tensor, next_obs_tensor
+            )
+
+            # Use state prediction error as intrinsic reward
+            # Scale by curiosity_reward_coef to control the magnitude
+            curiosity_reward = (
+                self.curiosity_reward_coef * state_loss.detach().cpu().numpy()
+            )
+
+            return curiosity_reward
 
     def train(self) -> None:
         """
         Update policy using the currently gathered rollout buffer.
         """
-        # Transfer rollout buffer data to replay buffer
-        self._transfer_rollout_to_replay()
-
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizer learning rate
@@ -112,53 +236,9 @@ class OCZeroPPO(PPO):
         pg_losses, value_losses = [], []
         clip_fractions = []
 
-        projection_losses, reward_prediction_losses, collision_losses, closer_losses = (
-            [],
-            [],
-            [],
-            [],
-        )
+        action_losses, state_losses = [], []
 
         continue_training = True
-
-        # Auxiliary losses
-        for epoch in range(self.n_aux_epochs):
-            # Compute auxiliary dynamics losses
-            # Only train if we have enough samples in the replay buffer
-            if self.replay_buffer.size() >= self.aux_batch_size:
-                replay_data = self.replay_buffer.sample(self.aux_batch_size)
-
-                if isinstance(self.action_space, spaces.Discrete):
-                    # Convert discrete action from float to long
-                    actions = replay_data.actions.long().flatten()
-
-                projection_loss, reward_prediction_loss = self.policy.evaluate_dynamics(
-                    replay_data.observations,
-                    actions,
-                    replay_data.rewards,
-                    replay_data.next_observations,
-                )
-
-                collision_loss, closer_loss = (
-                    self.policy.features_extractor.encoder.pairwise_auxiliary_loss()
-                )
-
-                loss = (
-                    self.reward_pred_coef * reward_prediction_loss
-                    + self.proj_coef * projection_loss
-                    + self.collision_coef * collision_loss
-                    + self.closer_coef * closer_loss
-                )
-
-                projection_losses.append(projection_loss.item())
-                reward_prediction_losses.append(reward_prediction_loss.item())
-                collision_losses.append(collision_loss.item())
-                closer_losses.append(closer_loss.item())
-
-                self.policy.auxiliary_optimizer.zero_grad()
-                loss.backward()
-                self.policy.auxiliary_optimizer.step()
-
         # train for n_epochs epochs
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
@@ -172,6 +252,12 @@ class OCZeroPPO(PPO):
                 values, log_prob, entropy = self.policy.evaluate_actions(
                     rollout_data.observations, actions
                 )
+
+                action_loss, state_loss = self.policy.curiosity_loss(
+                    rollout_data.observations, actions, rollout_data.next_observations
+                )
+                state_loss = state_loss.mean()
+
                 values = values.flatten()
                 # Normalize advantage
                 advantages = rollout_data.advantages
@@ -197,6 +283,8 @@ class OCZeroPPO(PPO):
                     (torch.abs(ratio - 1) > clip_range).float()
                 ).item()
                 clip_fractions.append(clip_fraction)
+                action_losses.append(action_loss.item())
+                state_losses.append(state_loss.item())
 
                 if self.clip_range_vf is None:
                     # No clipping
@@ -224,6 +312,8 @@ class OCZeroPPO(PPO):
                     policy_loss
                     + self.ent_coef * entropy_loss
                     + self.vf_coef * value_loss
+                    + self.action_loss_coef * action_loss
+                    + self.state_loss_coef * state_loss
                 )
 
                 # Calculate approximate form of reverse KL Divergence for early stopping
@@ -270,69 +360,14 @@ class OCZeroPPO(PPO):
         self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())
         self.logger.record("train/explained_variance", explained_var)
+        self.logger.record("train/curiosity/action_loss", np.mean(action_losses))
+        self.logger.record("train/curiosity/state_loss", np.mean(state_losses))
         if hasattr(self.policy, "log_std"):
             self.logger.record(
                 "train/std", torch.exp(self.policy.log_std).mean().item()
             )
-        self.logger.record("train/dynamics_proj_loss", np.mean(projection_losses))
-        self.logger.record(
-            "train/dynamics_reward_pred_loss", np.mean(reward_prediction_losses)
-        )
-        self.logger.record("train/dynamics_collision_loss", np.mean(collision_losses))
-        self.logger.record("train/dynamics_closer_loss", np.mean(closer_losses))
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/clip_range", clip_range)
         if self.clip_range_vf is not None:
             self.logger.record("train/clip_range_vf", clip_range_vf)
-
-    def _transfer_rollout_to_replay(self) -> None:
-        """
-        Transfer data from rollout buffer to replay buffer for auxiliary training.
-        """
-        # Convert rollout buffer to numpy arrays for easier manipulation
-        buffer_size = self.rollout_buffer.buffer_size
-        n_envs = self.rollout_buffer.n_envs
-
-        # Get data from rollout buffer
-        observations = (
-            self.rollout_buffer.observations
-        )  # Shape: (buffer_size, n_envs, *obs_shape)
-        actions = (
-            self.rollout_buffer.actions
-        )  # Shape: (buffer_size, n_envs, *action_shape)
-        rewards = self.rollout_buffer.rewards  # Shape: (buffer_size, n_envs)
-
-        # For next observations, we need to shift observations by 1 step
-        # Use the next observation at each timestep
-        for step in range(buffer_size):
-            for env_idx in range(n_envs):
-                # Current observation
-                obs = observations[step, env_idx : env_idx + 1]  # Keep batch dimension
-
-                # Action taken
-                action = actions[step, env_idx : env_idx + 1]  # Keep batch dimension
-
-                # Reward received
-                reward = rewards[step, env_idx : env_idx + 1]  # Keep batch dimension
-
-                # Next observation (use next step's observation, or current if last step)
-                if step < buffer_size - 1:
-                    next_obs = observations[step + 1, env_idx : env_idx + 1]
-                else:
-                    # For the last step, use the same observation as next_obs
-                    # In practice, this should be handled by episode termination
-                    next_obs = observations[step, env_idx : env_idx + 1]
-
-                # Done flag (assume not done for simplicity, this could be improved)
-                done = np.array([False])
-
-                # Add to replay buffer
-                self.replay_buffer.add(
-                    obs=obs,
-                    next_obs=next_obs,
-                    action=action,
-                    reward=reward,
-                    done=done,
-                    infos=[{}],
-                )
