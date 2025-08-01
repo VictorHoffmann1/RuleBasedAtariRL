@@ -1,12 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 
 class RelationalNetwork(nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, top_k=64):
+    def __init__(self, input_dim, hidden_dim=128, output_dim=32, top_k=64):
         super().__init__()
         # Self-Interaction MLP
         self.phi = nn.Sequential(
@@ -38,7 +38,7 @@ class RelationalNetwork(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(
                 hidden_dim,  # Output dimension of the global MLP
-                hidden_dim,
+                output_dim,
             ),
         )
 
@@ -84,7 +84,7 @@ class RelationalNetwork(nn.Module):
         pooled = torch.sum(interaction_feat * ij_weights.unsqueeze(-1), dim=1)  # (B, H)
 
         # Final MLP
-        return pooled + self.rho(pooled)  # (B, hidden_dim)
+        return self.rho(pooled)  # (B, hidden_dim)
 
     @staticmethod
     def trim(x):
@@ -192,10 +192,10 @@ class TopKAttention(nn.Module):
 
 
 class RelationalNetworkFeaturesExtractor(BaseFeaturesExtractor):
-    def __init__(self, observation_space, n_features, hidden_dim, top_k):
-        super().__init__(observation_space, features_dim=hidden_dim)
+    def __init__(self, observation_space, n_features, hidden_dim, output_dim, top_k):
+        super().__init__(observation_space, features_dim=output_dim)
         self.relational_network_encoder = RelationalNetwork(
-            n_features, hidden_dim, top_k
+            n_features, hidden_dim, output_dim, top_k
         )
 
     def forward(self, observations):
@@ -210,6 +210,7 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
         lr_schedule,
         n_features=6,
         hidden_dim=64,
+        output_dim=32,
         top_k=16,
         **kwargs,
     ):
@@ -222,6 +223,7 @@ class CustomRelationalNetworkPolicy(ActorCriticPolicy):
             features_extractor_kwargs=dict(
                 n_features=n_features,
                 hidden_dim=hidden_dim,
+                output_dim=output_dim,
                 top_k=top_k,
             ),
             **kwargs,

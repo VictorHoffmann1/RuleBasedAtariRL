@@ -9,10 +9,14 @@ class EnvModel(nn.Module):
     environment by predicting the objects' next state given
     the current state and action."""
 
-    def __init__(self, n_features, n_actions, hidden_dim=16, feedforward_dim=64):
+    def __init__(
+        self, n_features, n_actions, hidden_dim=12, feedforward_dim=12, num_queries=32
+    ):
         super(EnvModel, self).__init__()
         self.n_features = n_features
         self.n_actions = n_actions
+        self.hidden_dim = hidden_dim
+        self.num_queries = num_queries
 
         # Use a DETR-like architecture and loss
         # NOTE: A bit too complex IMO, maybe try to simplify by tracking objects
@@ -21,10 +25,13 @@ class EnvModel(nn.Module):
         self.obj_embedding = nn.Linear(n_features, hidden_dim)
         self.action_embedding = nn.Linear(n_actions, hidden_dim)
 
-        transformer_layer = nn.TransformerEncoderLayer(
+        # Learnable object queries for DETR-like approach
+        self.object_queries = nn.Parameter(torch.randn(num_queries, hidden_dim))
+
+        transformer_layer = nn.TransformerDecoderLayer(
             d_model=hidden_dim, nhead=1, dim_feedforward=feedforward_dim, dropout=0.0
         )
-        self.transformer = nn.TransformerEncoder(transformer_layer, num_layers=1)
+        self.transformer = nn.TransformerDecoder(transformer_layer, num_layers=1)
 
         self.fc_out = nn.Linear(
             hidden_dim, n_features + 1
@@ -35,22 +42,49 @@ class EnvModel(nn.Module):
         # features: cx,cy,vx,vy,w,h
         # actions: (batch_size, 1)
 
-        # Add a 0 to the padding mask for the action token
-        padding_mask = torch.cat(
-            [torch.zeros(x.size(0), device=x.device), (x.sum(dim=-1) == 0).all(dim=-1)],
-            dim=0,
-        )
-        actions_one_hot = torch.nn.functional.one_hot(
-            actions.flatten().long(), num_classes=self.n_actions, device=x.device
-        ).float()
+        # Create padding mask for memory (encoder output)
+        x, obj_padding_mask = self.trim(x)  # (batch_size, num_objects, n_features)
+        memory_padding_mask = torch.cat(
+            [
+                torch.zeros((x.size(0), 1), dtype=torch.bool, device=x.device),
+                obj_padding_mask,
+            ],
+            dim=1,
+        )  # (batch_size, 1 + num_objects)
 
+        actions_one_hot = (
+            torch.nn.functional.one_hot(
+                actions.flatten().long(), num_classes=self.n_actions
+            )
+            .float()
+            .to(x.device)
+        )
+
+        # Create encoder memory (embeddings of objects and actions)
         obj_embeddings = self.obj_embedding(x)
         action_embeddings = self.action_embedding(actions_one_hot).unsqueeze(1)
-        embeddings = torch.cat([action_embeddings, obj_embeddings], dim=1)
+        memory = torch.cat([action_embeddings, obj_embeddings], dim=1)
+        # memory shape: (batch_size, 1 + num_objects, hidden_dim)
 
+        # Prepare object queries for each batch
+        batch_size = x.size(0)
+        tgt = self.object_queries.unsqueeze(0).expand(batch_size, -1, -1)
+        # tgt shape: (batch_size, num_queries, hidden_dim)
+
+        # Transpose for transformer (seq_len, batch_size, hidden_dim)
+        tgt = tgt.permute(1, 0, 2)  # (num_queries, batch_size, hidden_dim)
+        memory = memory.permute(1, 0, 2)  # (1 + num_objects, batch_size, hidden_dim)
+
+        # Apply transformer decoder
         transformer_output = self.transformer(
-            embeddings.permute(1, 0, 2), src_key_padding_mask=padding_mask
-        ).permute(1, 0, 2)
+            tgt=tgt, memory=memory, memory_key_padding_mask=memory_padding_mask
+        )
+        # transformer_output shape: (num_queries, batch_size, hidden_dim)
+
+        # Transpose back and apply final linear layer
+        transformer_output = transformer_output.permute(
+            1, 0, 2
+        )  # (batch_size, num_queries, hidden_dim)
 
         return self.fc_out(transformer_output)
 
@@ -58,23 +92,25 @@ class EnvModel(nn.Module):
         self, predictions, targets, iou_weight=1.0, l1_weight=1.0, bce_weight=1.0
     ):
         # targets: (batch_size, num_objects, n_features)
-        # predictions: (batch_size, num_objects, n_features + 1)
+        # predictions: (batch_size, num_queries, n_features + 1)
 
         batch_size = predictions.shape[0]
-        num_pred_objects = predictions.shape[1]
+        num_queries = predictions.shape[1]
 
         # Split predictions into object features and objectness scores
-        pred_objects = predictions[:, :, :-1]  # (batch_size, num_objects, n_features)
-        pred_objectness = predictions[:, :, -1]  # (batch_size, num_objects)
+        pred_objects = predictions[:, :, :-1]  # (batch_size, num_queries, n_features)
+        pred_objectness = predictions[:, :, -1]  # (batch_size, num_queries)
 
         total_loss = 0.0
-        total_iou_loss = 0.0
-        total_l1_loss = 0.0
+        # total_iou_loss = 0.0
+        total_l1_pos_loss = 0.0
+        total_l1_speed_loss = 0.0
+        total_l1_shape_loss = 0.0
         total_bce_loss = 0.0
 
         for b in range(batch_size):
             # Get valid targets (non-zero objects)
-            target_mask = targets[b].sum(dim=-1) != 0  # (num_objects,)
+            target_mask = targets[b].abs().sum(dim=-1) != 0  # (num_objects,)
             valid_targets = targets[b][target_mask]  # (num_valid_targets, n_features)
             num_valid_targets = valid_targets.shape[0]
 
@@ -99,7 +135,7 @@ class EnvModel(nn.Module):
             target_indices = torch.tensor(target_indices, device=predictions.device)
 
             # Create objectness labels
-            objectness_labels = torch.zeros(num_pred_objects, device=predictions.device)
+            objectness_labels = torch.zeros(num_queries, device=predictions.device)
             objectness_labels[pred_indices] = 1.0
 
             # Compute losses for matched predictions
@@ -107,12 +143,20 @@ class EnvModel(nn.Module):
             matched_targets = valid_targets[target_indices]
 
             # IoU loss for bounding boxes (cx, cy, w, h are at indices 0, 1, 4, 5)
-            iou_loss = self._compute_iou_loss(matched_preds, matched_targets)
-            total_iou_loss += iou_loss
+            # iou_loss = self._compute_iou_loss(matched_preds, matched_targets)
+            # total_iou_loss += iou_loss
+
+            # L1 loss for positions (cx, cy are at indices 0, 1)
+            l1_pos_loss = F.l1_loss(matched_preds[:, :2], matched_targets[:, :2])
+            total_l1_pos_loss += l1_pos_loss
 
             # L1 loss for velocities (vx, vy are at indices 2, 3)
-            l1_loss = F.l1_loss(matched_preds[:, 2:4], matched_targets[:, 2:4])
-            total_l1_loss += l1_loss
+            l1_speed_loss = F.l1_loss(matched_preds[:, 2:4], matched_targets[:, 2:4])
+            total_l1_speed_loss += l1_speed_loss
+
+            # L1 loss for shapes (w, h are at indices 4, 5)
+            l1_shape_loss = F.l1_loss(matched_preds[:, 4:6], matched_targets[:, 4:6])
+            total_l1_shape_loss += l1_shape_loss
 
             # Binary cross-entropy for objectness
             bce_loss = F.binary_cross_entropy_with_logits(
@@ -121,21 +165,25 @@ class EnvModel(nn.Module):
             total_bce_loss += bce_loss
 
         # Average losses over batch
-        avg_iou_loss = total_iou_loss / batch_size
-        avg_l1_loss = total_l1_loss / batch_size
+        # avg_iou_loss = total_iou_loss / batch_size
+        avg_l1_speed_loss = total_l1_speed_loss / batch_size
+        avg_l1_pos_loss = total_l1_pos_loss / batch_size
+        avg_l1_shape_loss = total_l1_shape_loss / batch_size
         avg_bce_loss = total_bce_loss / batch_size
 
         # Combine losses with weights (you can adjust these)
         total_loss = (
-            iou_weight * avg_iou_loss
-            + l1_weight * avg_l1_loss
+            # iou_weight * avg_iou_loss
+            l1_weight * (avg_l1_pos_loss + avg_l1_speed_loss + avg_l1_shape_loss)
             + bce_weight * avg_bce_loss
         )
 
         return {
             "total_loss": total_loss,
-            "iou_loss": avg_iou_loss,
-            "l1_loss": avg_l1_loss,
+            # "iou_loss": avg_iou_loss,
+            "l1_pos_loss": avg_l1_pos_loss,
+            "l1_speed_loss": avg_l1_speed_loss,
+            "l1_shape_loss": avg_l1_shape_loss,
             "bce_loss": avg_bce_loss,
         }
 
@@ -213,15 +261,47 @@ class EnvModel(nn.Module):
             # actions: (batch_size, 1)
             predictions = self.forward(x, actions)
             # Get the objects with a prediction above the threshold
-            object_scores = predictions[:, :, -1].detach().cpu().numpy()
-            objects = (
-                predictions[:, :, :-1][object_scores > threshold].detach().cpu().numpy()
-            )
-            # UGLY DENORMALIZATION
-            objects[..., 2:4] *= 8.0
-            objects[..., 0] *= 160
-            objects[..., 4] *= 160
-            objects[..., 1] *= 210
-            objects[..., 5] *= 210
+            object_scores = predictions[:, :, -1]  # Keep as tensor
+            object_mask = object_scores > threshold
 
-        return objects, object_scores[object_scores > threshold]
+            # Extract objects for each batch item
+            objects_list = []
+            scores_list = []
+
+            for b in range(predictions.shape[0]):
+                batch_mask = object_mask[b]
+                if batch_mask.any():
+                    batch_objects = (
+                        predictions[b, batch_mask, :-1].detach().cpu().numpy()
+                    )
+                    batch_scores = object_scores[b, batch_mask].detach().cpu().numpy()
+
+                    # UGLY DENORMALIZATION - should be moved to a separate method
+                    batch_objects[..., 2:4] *= 8.0
+                    batch_objects[..., 0] *= 160
+                    batch_objects[..., 4] *= 160
+                    batch_objects[..., 1] *= 210
+                    batch_objects[..., 5] *= 210
+
+                    objects_list.append(batch_objects)
+                    scores_list.append(batch_scores)
+
+        return objects_list, scores_list
+
+    @staticmethod
+    def trim(x):
+        """
+        Remove trailing zero-padded objects from the input tensor.
+        Args:
+            x (torch.Tensor): Input tensor of shape (B, N, D) with zero-padded objects.
+        Returns:
+            torch.Tensor: Tensor with zero-padded objects trimmed, shape (B, max_valid_N, D).
+        """
+
+        obj_padding_mask = x.abs().sum(dim=-1) != 0  # (B, N)
+
+        max_valid = obj_padding_mask.sum(dim=1).max()
+
+        return x[:, :max_valid, :], ~obj_padding_mask[
+            :, :max_valid
+        ]  # Return trimmed tensor and mask
