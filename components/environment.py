@@ -1,10 +1,12 @@
-import gymnasium as gym
 import os
-from typing import Any, Callable, Optional, Union, Type, Dict
+from typing import Any, Callable, Dict, Optional, Type, Union
+
+import gymnasium as gym
+from ocatari.core import OCAtari
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv
+
 from components.wrappers import OCAtariWrapper
-from ocatari.core import OCAtari
 
 
 def make_ocatari_vec_env(

@@ -10,13 +10,12 @@ from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.env_checker import check_env
 
 from components.agent_mappings import get_agent_mapping
-from components.schedulers import get_lr
-from components.utils import create_env
-
-from components.agents.OCZero.ppo import OCZeroPPO
-from components.agents.OCZero.oczero import OCZeroPolicy
 from components.agents.Curiosity.curiousity_model import CuriosityPolicy
 from components.agents.Curiosity.ppo import CuriosityPPO
+from components.agents.OCZero.oczero import OCZeroPolicy
+from components.agents.OCZero.ppo import OCZeroPPO
+from components.schedulers import get_lr
+from components.utils import create_env
 
 
 # Optimize CPU performance - dynamic thread allocation
