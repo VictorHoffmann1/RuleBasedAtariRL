@@ -289,7 +289,7 @@ class WorldModel(nn.Module):
             # actions: (batch_size, 1)
             predictions = self.forward(x, actions)
             # Get the objects with a prediction above the threshold
-            object_scores = predictions[:, :, -1]  # Keep as tensor
+            object_scores = F.sigmoid(predictions[:, :, -1])  # Keep as tensor
             object_mask = object_scores > threshold
 
             # Extract objects for each batch item
@@ -306,9 +306,9 @@ class WorldModel(nn.Module):
 
                     # UGLY DENORMALIZATION - should be moved to a separate method
                     batch_objects[..., 2:4] *= 8.0
-                    batch_objects[..., 0] *= 160
+                    batch_objects[..., 0] = (batch_objects[..., 0] + 1) * 160 / 2
                     batch_objects[..., 4] *= 160
-                    batch_objects[..., 1] *= 210
+                    batch_objects[..., 1] = (batch_objects[..., 1] + 1) * 210 / 2
                     batch_objects[..., 5] *= 210
 
                     objects_list.append(batch_objects)
