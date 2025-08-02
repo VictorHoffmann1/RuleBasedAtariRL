@@ -9,7 +9,7 @@ import yaml
 from ocatari.core import OCAtari
 
 from components.agent_mappings import get_agent_mapping
-from components.agents.OCZero.env_model import EnvModel
+from components.agents.OCZero.world_model import WorldModel
 from components.utils import create_env, load_model
 
 
@@ -50,8 +50,8 @@ def oc_zero_test(args):
         env, agent_mapping, os.path.join(model_path, agent_mapping["name"])
     )
 
-    model_env = EnvModel(n_features=6, n_actions=env.action_space.n).to(device)
-    optimizer = torch.optim.Adam(model_env.parameters(), lr=1e-4)
+    model_env = WorldModel(n_features=6, n_actions=env.action_space.n).to(device)
+    optimizer = torch.optim.Adam(model_env.parameters(), lr=1e-3)
 
     model.set_random_seed(seed)
     env.seed(seed)
@@ -63,7 +63,7 @@ def oc_zero_test(args):
         cv2.VideoWriter_fourcc(*"mp4v"),
         30,  # FPS
         (frame_width * upscale_factor, frame_height * upscale_factor),
-        isColor=False if args.agent == "cnn" else True,
+        isColor=True,
     )
 
     print("Starting test...")
@@ -96,10 +96,15 @@ def oc_zero_test(args):
 
         predicted_next_obs = model_env(th_obs, th_actions)
         loss = model_env.compute_loss(
-            predicted_next_obs, th_obs, iou_weight=1.0, l1_weight=1.0, bce_weight=1.0
+            predicted_next_obs,
+            th_obs,
+            use_iou=False,
+            iou_weight=1.0,
+            l1_weight=1.0,
+            bce_weight=1.0,
         )
         print(
-            f"Step {step_count}, Loss: {loss['total_loss'].item()}, L1 Pos Loss: {loss['l1_pos_loss'].item()}, L1 Speed Loss: {loss['l1_speed_loss'].item()}, L1 Shape Loss: {loss['l1_shape_loss'].item()}, BCE Loss: {loss['bce_loss'].item()}"
+            f"Step {step_count}, Loss: {loss['total_loss'].item():<.4f}, IOU Loss: {loss['iou_loss'].item():<.4f}, L1 Pos Loss: {loss['l1_pos_loss'].item():<.4f}, L1 Speed Loss: {loss['l1_speed_loss'].item():<.4f}, L1 Shape Loss: {loss['l1_shape_loss'].item():<.4f}, BCE Loss: {loss['bce_loss'].item():<.4f}"
         )
 
         optimizer.zero_grad()
@@ -211,18 +216,6 @@ def get_ocatari_objects(env: gym.Env):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Rule-Based Encoder")
     parser.add_argument(
-        "--agent",
-        type=str,
-        required=True,
-        help="The agent type to test.",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="",
-        help="The model type to evaluate.",
-    )
-    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -234,7 +227,6 @@ if __name__ == "__main__":
         default=True,
         help="Use deterministic actions for evaluation.",
     )
-
     parser.add_argument(
         "--verbose_update",
         type=int,
